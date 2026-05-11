@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0,
+      Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0,
+      Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="About.Description" xml:space="preserve">
+    <value>A desktop app for viewing large JSON files.</value>
+  </data>
+  <data name="About.Title" xml:space="preserve">
+    <value>About Jasnote</value>
+  </data>
+  <data name="About.Version" xml:space="preserve">
+    <value>Version: {0}  (.NET WinForms app)</value>
+  </data>
+  <data name="Common.Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Common.Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="Common.Error" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="Common.OK" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="Detail.BranchSummary" xml:space="preserve">
+    <value>{0}, {1:N0} elements</value>
+  </data>
+  <data name="Error.ClipboardEmpty" xml:space="preserve">
+    <value>Clipboard does not contain text.</value>
+  </data>
+  <data name="Error.ClipboardReadFailed" xml:space="preserve">
+    <value>Failed to read clipboard.</value>
+  </data>
+  <data name="Error.DocumentEmpty" xml:space="preserve">
+    <value>JSON document is empty.</value>
+  </data>
+  <data name="Error.ExportFailed" xml:space="preserve">
+    <value>Failed to export selection.</value>
+  </data>
+  <data name="Error.ExtractBranchesOnly" xml:space="preserve">
+    <value>Can only extract objects and arrays.</value>
+  </data>
+  <data name="Error.FileNotFound" xml:space="preserve">
+    <value>File not found: {0}</value>
+  </data>
+  <data name="Error.FileTooLargeForMemory" xml:space="preserve">
+    <value>File is larger than the in-memory load limit allows.</value>
+  </data>
+  <data name="Error.JsonHugeToken" xml:space="preserve">
+    <value>JSON contains a single token (string or number) larger than {0} MB; cannot be parsed in streaming mode.</value>
+  </data>
+  <data name="Error.JsonlLineTooLong" xml:space="preserve">
+    <value>JSONL contains a line longer than {0} MB; cannot be parsed in streaming mode.</value>
+  </data>
+  <data name="Error.OpenDocumentFailed" xml:space="preserve">
+    <value>Failed to open document: {0}</value>
+  </data>
+  <data name="Error.NoSelection" xml:space="preserve">
+    <value>No selection.</value>
+  </data>
+  <data name="Error.RootMustBeObjectOrArray" xml:space="preserve">
+    <value>Top-level JSON value must be an object or array.</value>
+  </data>
+  <data name="Error.SearchAllowedKeywords" xml:space="preserve">
+    <value>Allowed keywords are: true, false, null.</value>
+  </data>
+  <data name="Error.SearchFailed" xml:space="preserve">
+    <value>Search failed.</value>
+  </data>
+  <data name="FileDialog.Filter.JsonOpen" xml:space="preserve">
+    <value>JSON / JSONL files (*.json;*.jsonl;*.ndjson)|*.json;*.jsonl;*.ndjson|All files (*.*)|*.*</value>
+  </data>
+  <data name="FileDialog.Filter.JsonSave" xml:space="preserve">
+    <value>JSON files (*.json)|*.json|All files (*.*)|*.*</value>
+  </data>
+  <data name="FileDialog.Filter.All" xml:space="preserve">
+    <value>All files (*.*)|*.*</value>
+  </data>
+  <data name="FileDialog.OpenTitle" xml:space="preserve">
+    <value>Open JSON or JSONL file</value>
+  </data>
+  <data name="FileDialog.ExportTitle" xml:space="preserve">
+    <value>Export selection</value>
+  </data>
+  <data name="JsonNodeType.Array" xml:space="preserve">
+    <value>array</value>
+  </data>
+  <data name="JsonNodeType.Boolean" xml:space="preserve">
+    <value>boolean</value>
+  </data>
+  <data name="JsonNodeType.Null" xml:space="preserve">
+    <value>null</value>
+  </data>
+  <data name="JsonNodeType.Number" xml:space="preserve">
+    <value>number</value>
+  </data>
+  <data name="JsonNodeType.Object" xml:space="preserve">
+    <value>object</value>
+  </data>
+  <data name="JsonNodeType.String" xml:space="preserve">
+    <value>string</value>
+  </data>
+  <data name="JsonNodeType.Undefined" xml:space="preserve">
+    <value>undefined</value>
+  </data>
+  <data name="Language.Auto" xml:space="preserve">
+    <value>System default</value>
+  </data>
+  <data name="Language.ChineseSimplified" xml:space="preserve">
+    <value>Simplified Chinese</value>
+  </data>
+  <data name="Language.English" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="Loading.ClipboardLabel" xml:space="preserve">
+    <value>Clipboard</value>
+  </data>
+  <data name="Loading.Progress.File" xml:space="preserve">
+    <value>{0} / {1}: Loading file from disk: {2}</value>
+  </data>
+  <data name="Loading.Progress.Rendering" xml:space="preserve">
+    <value>{0} / {1}: Rendering document with {2} elements: {3}</value>
+  </data>
+  <data name="Loading.Progress.Size" xml:space="preserve">
+    <value>{0} / {1}: Calculating document size: {2}</value>
+  </data>
+  <data name="Loading.Progress.Unknown" xml:space="preserve">
+    <value>{0} / {1}: ?</value>
+  </data>
+  <data name="Loading.Title" xml:space="preserve">
+    <value>Loading</value>
+  </data>
+  <data name="Menu.File" xml:space="preserve">
+    <value>&amp;File</value>
+  </data>
+  <data name="Menu.File.ExportClipboard" xml:space="preserve">
+    <value>Export Selection To &amp;Clipboard</value>
+  </data>
+  <data name="Menu.File.ExportFile" xml:space="preserve">
+    <value>Export Selection To &amp;File...</value>
+  </data>
+  <data name="Menu.File.New" xml:space="preserve">
+    <value>&amp;New</value>
+  </data>
+  <data name="Menu.File.Open" xml:space="preserve">
+    <value>&amp;Open File...</value>
+  </data>
+  <data name="Menu.File.OpenClipboard" xml:space="preserve">
+    <value>Open From Clip&amp;board</value>
+  </data>
+  <data name="Menu.File.OpenRecent" xml:space="preserve">
+    <value>Open &amp;Recent</value>
+  </data>
+  <data name="Menu.File.Quit" xml:space="preserve">
+    <value>E&amp;xit</value>
+  </data>
+  <data name="Menu.File.Reload" xml:space="preserve">
+    <value>Re&amp;load</value>
+  </data>
+  <data name="Menu.File.Settings" xml:space="preserve">
+    <value>&amp;Settings...</value>
+  </data>
+  <data name="Menu.Go" xml:space="preserve">
+    <value>&amp;Go</value>
+  </data>
+  <data name="Menu.Go.Bottom" xml:space="preserve">
+    <value>Go to &amp;bottom</value>
+  </data>
+  <data name="Menu.Go.Selection" xml:space="preserve">
+    <value>Go to &amp;selection</value>
+  </data>
+  <data name="Menu.Go.Top" xml:space="preserve">
+    <value>Go to &amp;top</value>
+  </data>
+  <data name="Menu.Help" xml:space="preserve">
+    <value>&amp;Help</value>
+  </data>
+  <data name="Menu.Help.About" xml:space="preserve">
+    <value>&amp;About...</value>
+  </data>
+  <data name="Menu.Help.ReportBug" xml:space="preserve">
+    <value>&amp;Report a bug</value>
+  </data>
+  <data name="Menu.View" xml:space="preserve">
+    <value>&amp;View</value>
+  </data>
+  <data name="Menu.View.CollapseAll" xml:space="preserve">
+    <value>&amp;Collapse All</value>
+  </data>
+  <data name="Menu.View.ExpandAll" xml:space="preserve">
+    <value>Expand &amp;All</value>
+  </data>
+  <data name="Menu.View.ShowDetail" xml:space="preserve">
+    <value>Show value detail</value>
+  </data>
+  <data name="Menu.View.ShowSelection" xml:space="preserve">
+    <value>Show selected element</value>
+  </data>
+  <data name="Search.Button" xml:space="preserve">
+    <value>Search</value>
+  </data>
+  <data name="Search.NoMatch.Message" xml:space="preserve">
+    <value>No {0} found matching: {1}</value>
+  </data>
+  <data name="Search.NoMatch.Title" xml:space="preserve">
+    <value>No match</value>
+  </data>
+  <data name="Search.Placeholder" xml:space="preserve">
+    <value>Enter pattern to search for...</value>
+  </data>
+  <data name="Search.Type.Key" xml:space="preserve">
+    <value>key</value>
+  </data>
+  <data name="Search.Type.Keyword" xml:space="preserve">
+    <value>keyword</value>
+  </data>
+  <data name="Search.Type.Number" xml:space="preserve">
+    <value>number</value>
+  </data>
+  <data name="Search.Type.String" xml:space="preserve">
+    <value>string</value>
+  </data>
+  <data name="Selection.Root" xml:space="preserve">
+    <value>(root)</value>
+  </data>
+  <data name="Settings.Appearance" xml:space="preserve">
+    <value>Appearance:</value>
+  </data>
+  <data name="Settings.ExtensionFilter" xml:space="preserve">
+    <value>Show .json / .jsonl / .ndjson files only</value>
+  </data>
+  <data name="Settings.FileFilter" xml:space="preserve">
+    <value>JSON file filter:</value>
+  </data>
+  <data name="Settings.Language" xml:space="preserve">
+    <value>Language:</value>
+  </data>
+  <data name="Settings.NotifyUpdates" xml:space="preserve">
+    <value>Notify when an update is available (requires restart)</value>
+  </data>
+  <data name="Settings.RecentFiles" xml:space="preserve">
+    <value>Max recent files:</value>
+  </data>
+  <data name="Settings.Title" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="Settings.Updates" xml:space="preserve">
+    <value>Updates:</value>
+  </data>
+  <data name="Status.Elements" xml:space="preserve">
+    <value>{0:N0} elements</value>
+  </data>
+  <data name="Status.UpdateAvailable" xml:space="preserve">
+    <value>Update available</value>
+  </data>
+  <data name="Theme.Auto" xml:space="preserve">
+    <value>Automatic</value>
+  </data>
+  <data name="Theme.Dark" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="Theme.Light" xml:space="preserve">
+    <value>Light</value>
+  </data>
+  <data name="Tooltip.CollapseAll" xml:space="preserve">
+    <value>Collapse all</value>
+  </data>
+  <data name="Tooltip.CopyKey" xml:space="preserve">
+    <value>Copy key to clipboard</value>
+  </data>
+  <data name="Tooltip.CopyValue" xml:space="preserve">
+    <value>Copy value to clipboard</value>
+  </data>
+  <data name="Tooltip.JumpSelection" xml:space="preserve">
+    <value>Jump to selection</value>
+  </data>
+  <data name="Tooltip.ScrollBottom" xml:space="preserve">
+    <value>Scroll to bottom</value>
+  </data>
+  <data name="Tooltip.ScrollTop" xml:space="preserve">
+    <value>Scroll to top</value>
+  </data>
+  <data name="Tooltip.Search" xml:space="preserve">
+    <value>Search</value>
+  </data>
+  <data name="Tooltip.SearchType" xml:space="preserve">
+    <value>Select what to search</value>
+  </data>
+  <data name="Welcome.Text" xml:space="preserve">
+    <value>Welcome to Jasnote.&#xD;&#xA;&#xD;&#xA;Open a JSON or JSONL file through the File menu, drag &amp; drop one onto this window,&#xD;&#xA;or import from the clipboard.</value>
+  </data>
+</root>

@@ -1,0 +1,16 @@
+{
+  "name": "Jasnote .NET port",
+  "version": "0.10.0",
+  "active": true,
+  "deprecated": null,
+  "tags": ["json", "viewer", "winforms"],
+  "performance": {
+    "maxElements": 10000000,
+    "streamed": true,
+    "scoreF": 9.87
+  },
+  "files": [
+    {"path": "a.json", "size": 12345},
+    {"path": "b.json", "size": 67890}
+  ]
+}

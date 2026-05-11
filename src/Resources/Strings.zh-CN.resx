@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0,
+      Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0,
+      Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="About.Description" xml:space="preserve">
+    <value>用于查看大型 JSON 文件的桌面应用。</value>
+  </data>
+  <data name="About.Title" xml:space="preserve">
+    <value>关于 Jasnote</value>
+  </data>
+  <data name="About.Version" xml:space="preserve">
+    <value>版本：{0} (.NET WinForms 应用)</value>
+  </data>
+  <data name="Common.Cancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="Common.Close" xml:space="preserve">
+    <value>关闭</value>
+  </data>
+  <data name="Common.Error" xml:space="preserve">
+    <value>错误</value>
+  </data>
+  <data name="Common.OK" xml:space="preserve">
+    <value>确定</value>
+  </data>
+  <data name="Detail.BranchSummary" xml:space="preserve">
+    <value>{0},{1:N0} 个元素</value>
+  </data>
+  <data name="Error.ClipboardEmpty" xml:space="preserve">
+    <value>剪贴板中没有文本。</value>
+  </data>
+  <data name="Error.ClipboardReadFailed" xml:space="preserve">
+    <value>读取剪贴板失败。</value>
+  </data>
+  <data name="Error.DocumentEmpty" xml:space="preserve">
+    <value>JSON 文档为空。</value>
+  </data>
+  <data name="Error.ExportFailed" xml:space="preserve">
+    <value>导出选中内容失败。</value>
+  </data>
+  <data name="Error.ExtractBranchesOnly" xml:space="preserve">
+    <value>只能导出对象和数组。</value>
+  </data>
+  <data name="Error.FileNotFound" xml:space="preserve">
+    <value>文件不存在：{0}</value>
+  </data>
+  <data name="Error.FileTooLargeForMemory" xml:space="preserve">
+    <value>文件超过内存加载限制。</value>
+  </data>
+  <data name="Error.JsonHugeToken" xml:space="preserve">
+    <value>JSON 中包含大于 {0} MB 的单个标记（字符串或数字），无法以流式模式解析。</value>
+  </data>
+  <data name="Error.JsonlLineTooLong" xml:space="preserve">
+    <value>JSONL 中包含超过 {0} MB 的单行，无法以流式模式解析。</value>
+  </data>
+  <data name="Error.OpenDocumentFailed" xml:space="preserve">
+    <value>打开文档失败：{0}</value>
+  </data>
+  <data name="Error.NoSelection" xml:space="preserve">
+    <value>没有选中内容。</value>
+  </data>
+  <data name="Error.RootMustBeObjectOrArray" xml:space="preserve">
+    <value>顶层 JSON 值必须是对象或数组。</value>
+  </data>
+  <data name="Error.SearchAllowedKeywords" xml:space="preserve">
+    <value>允许的关键字为：true、false、null。</value>
+  </data>
+  <data name="Error.SearchFailed" xml:space="preserve">
+    <value>搜索失败。</value>
+  </data>
+  <data name="FileDialog.Filter.JsonOpen" xml:space="preserve">
+    <value>JSON / JSONL 文件 (*.json;*.jsonl;*.ndjson)|*.json;*.jsonl;*.ndjson|所有文件 (*.*)|*.*</value>
+  </data>
+  <data name="FileDialog.Filter.JsonSave" xml:space="preserve">
+    <value>JSON 文件 (*.json)|*.json|所有文件 (*.*)|*.*</value>
+  </data>
+  <data name="FileDialog.Filter.All" xml:space="preserve">
+    <value>所有文件 (*.*)|*.*</value>
+  </data>
+  <data name="FileDialog.OpenTitle" xml:space="preserve">
+    <value>打开 JSON 或 JSONL 文件</value>
+  </data>
+  <data name="FileDialog.ExportTitle" xml:space="preserve">
+    <value>导出选中内容</value>
+  </data>
+  <data name="JsonNodeType.Array" xml:space="preserve">
+    <value>数组</value>
+  </data>
+  <data name="JsonNodeType.Boolean" xml:space="preserve">
+    <value>布尔值</value>
+  </data>
+  <data name="JsonNodeType.Null" xml:space="preserve">
+    <value>null</value>
+  </data>
+  <data name="JsonNodeType.Number" xml:space="preserve">
+    <value>数字</value>
+  </data>
+  <data name="JsonNodeType.Object" xml:space="preserve">
+    <value>对象</value>
+  </data>
+  <data name="JsonNodeType.String" xml:space="preserve">
+    <value>字符串</value>
+  </data>
+  <data name="JsonNodeType.Undefined" xml:space="preserve">
+    <value>未定义</value>
+  </data>
+  <data name="Language.Auto" xml:space="preserve">
+    <value>跟随系统</value>
+  </data>
+  <data name="Language.ChineseSimplified" xml:space="preserve">
+    <value>简体中文</value>
+  </data>
+  <data name="Language.English" xml:space="preserve">
+    <value>英语</value>
+  </data>
+  <data name="Loading.ClipboardLabel" xml:space="preserve">
+    <value>剪贴板</value>
+  </data>
+  <data name="Loading.Progress.File" xml:space="preserve">
+    <value>{0} / {1}：正在从磁盘加载文件：{2}</value>
+  </data>
+  <data name="Loading.Progress.Rendering" xml:space="preserve">
+    <value>{0} / {1}：正在渲染包含 {2} 个元素的文档：{3}</value>
+  </data>
+  <data name="Loading.Progress.Size" xml:space="preserve">
+    <value>{0} / {1}：正在计算文档大小：{2}</value>
+  </data>
+  <data name="Loading.Progress.Unknown" xml:space="preserve">
+    <value>{0} / {1}：?</value>
+  </data>
+  <data name="Loading.Title" xml:space="preserve">
+    <value>正在加载</value>
+  </data>
+  <data name="Menu.File" xml:space="preserve">
+    <value>文件(&amp;F)</value>
+  </data>
+  <data name="Menu.File.ExportClipboard" xml:space="preserve">
+    <value>导出选中内容到剪贴板(&amp;C)</value>
+  </data>
+  <data name="Menu.File.ExportFile" xml:space="preserve">
+    <value>导出选中内容到文件(&amp;F)...</value>
+  </data>
+  <data name="Menu.File.New" xml:space="preserve">
+    <value>新建(&amp;N)</value>
+  </data>
+  <data name="Menu.File.Open" xml:space="preserve">
+    <value>打开文件(&amp;O)...</value>
+  </data>
+  <data name="Menu.File.OpenClipboard" xml:space="preserve">
+    <value>从剪贴板打开(&amp;B)</value>
+  </data>
+  <data name="Menu.File.OpenRecent" xml:space="preserve">
+    <value>打开最近文件(&amp;R)</value>
+  </data>
+  <data name="Menu.File.Quit" xml:space="preserve">
+    <value>退出(&amp;X)</value>
+  </data>
+  <data name="Menu.File.Reload" xml:space="preserve">
+    <value>重新加载(&amp;L)</value>
+  </data>
+  <data name="Menu.File.Settings" xml:space="preserve">
+    <value>设置(&amp;S)...</value>
+  </data>
+  <data name="Menu.Go" xml:space="preserve">
+    <value>跳转(&amp;G)</value>
+  </data>
+  <data name="Menu.Go.Bottom" xml:space="preserve">
+    <value>跳转到底部(&amp;B)</value>
+  </data>
+  <data name="Menu.Go.Selection" xml:space="preserve">
+    <value>跳转到选中项(&amp;S)</value>
+  </data>
+  <data name="Menu.Go.Top" xml:space="preserve">
+    <value>跳转到顶部(&amp;T)</value>
+  </data>
+  <data name="Menu.Help" xml:space="preserve">
+    <value>帮助(&amp;H)</value>
+  </data>
+  <data name="Menu.Help.About" xml:space="preserve">
+    <value>关于(&amp;A)...</value>
+  </data>
+  <data name="Menu.Help.ReportBug" xml:space="preserve">
+    <value>报告问题(&amp;R)</value>
+  </data>
+  <data name="Menu.View" xml:space="preserve">
+    <value>视图(&amp;V)</value>
+  </data>
+  <data name="Menu.View.CollapseAll" xml:space="preserve">
+    <value>全部折叠(&amp;C)</value>
+  </data>
+  <data name="Menu.View.ExpandAll" xml:space="preserve">
+    <value>全部展开(&amp;A)</value>
+  </data>
+  <data name="Menu.View.ShowDetail" xml:space="preserve">
+    <value>显示值详情</value>
+  </data>
+  <data name="Menu.View.ShowSelection" xml:space="preserve">
+    <value>显示选中元素</value>
+  </data>
+  <data name="Search.Button" xml:space="preserve">
+    <value>搜索</value>
+  </data>
+  <data name="Search.NoMatch.Message" xml:space="preserve">
+    <value>未找到匹配的{0}：{1}</value>
+  </data>
+  <data name="Search.NoMatch.Title" xml:space="preserve">
+    <value>没有匹配项</value>
+  </data>
+  <data name="Search.Placeholder" xml:space="preserve">
+    <value>输入要搜索的模式...</value>
+  </data>
+  <data name="Search.Type.Key" xml:space="preserve">
+    <value>键</value>
+  </data>
+  <data name="Search.Type.Keyword" xml:space="preserve">
+    <value>关键字</value>
+  </data>
+  <data name="Search.Type.Number" xml:space="preserve">
+    <value>数字</value>
+  </data>
+  <data name="Search.Type.String" xml:space="preserve">
+    <value>字符串</value>
+  </data>
+  <data name="Selection.Root" xml:space="preserve">
+    <value>（根）</value>
+  </data>
+  <data name="Settings.Appearance" xml:space="preserve">
+    <value>外观：</value>
+  </data>
+  <data name="Settings.ExtensionFilter" xml:space="preserve">
+    <value>仅显示 .json / .jsonl / .ndjson 文件</value>
+  </data>
+  <data name="Settings.FileFilter" xml:space="preserve">
+    <value>JSON 文件过滤：</value>
+  </data>
+  <data name="Settings.Language" xml:space="preserve">
+    <value>语言：</value>
+  </data>
+  <data name="Settings.NotifyUpdates" xml:space="preserve">
+    <value>有可用更新时通知（重启后生效）</value>
+  </data>
+  <data name="Settings.RecentFiles" xml:space="preserve">
+    <value>最近文件数量：</value>
+  </data>
+  <data name="Settings.Title" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="Settings.Updates" xml:space="preserve">
+    <value>更新：</value>
+  </data>
+  <data name="Status.Elements" xml:space="preserve">
+    <value>{0:N0} 个元素</value>
+  </data>
+  <data name="Status.UpdateAvailable" xml:space="preserve">
+    <value>有可用更新</value>
+  </data>
+  <data name="Theme.Auto" xml:space="preserve">
+    <value>自动</value>
+  </data>
+  <data name="Theme.Dark" xml:space="preserve">
+    <value>深色</value>
+  </data>
+  <data name="Theme.Light" xml:space="preserve">
+    <value>浅色</value>
+  </data>
+  <data name="Tooltip.CollapseAll" xml:space="preserve">
+    <value>全部折叠</value>
+  </data>
+  <data name="Tooltip.CopyKey" xml:space="preserve">
+    <value>复制键到剪贴板</value>
+  </data>
+  <data name="Tooltip.CopyValue" xml:space="preserve">
+    <value>复制值到剪贴板</value>
+  </data>
+  <data name="Tooltip.JumpSelection" xml:space="preserve">
+    <value>跳转到选中项</value>
+  </data>
+  <data name="Tooltip.ScrollBottom" xml:space="preserve">
+    <value>滚动到底部</value>
+  </data>
+  <data name="Tooltip.ScrollTop" xml:space="preserve">
+    <value>滚动到顶部</value>
+  </data>
+  <data name="Tooltip.Search" xml:space="preserve">
+    <value>搜索</value>
+  </data>
+  <data name="Tooltip.SearchType" xml:space="preserve">
+    <value>选择搜索范围</value>
+  </data>
+  <data name="Welcome.Text" xml:space="preserve">
+    <value>欢迎使用 Jasnote。&#xD;&#xA;&#xD;&#xA;通过文件菜单打开 JSON 或 JSONL 文件，将文件拖放到此窗口，&#xD;&#xA;或从剪贴板导入。</value>
+  </data>
+</root>
