@@ -65,15 +65,32 @@ public sealed class JsonTreeDocument
     public string[] StringPool = [];
 
     int _stringPoolCount;
+    int _stringCapacity;
+    int _nodeCapacity;
 
-    // Last value of Count at which we emitted a step-3 progress report.
-    // JSONL parses tokens in line-sized batches, so Count can skip multiples
+    // Last value of _count at which we emitted a step-3 progress report.
+    // JSONL parses tokens in line-sized batches, so _count can skip multiples
     // of ProgressTick entirely (e.g. lines that always have 17 tokens never
-    // land Count on a multiple of 10000); the bucket-diff comparison below
+    // land _count on a multiple of 10000); the bucket-diff comparison below
     // fires reliably regardless of per-line token count.
     int _lastProgressCount;
 
-    public int Count { get; private set; }
+    // The parser-internal node counter. Grows as nodes are appended.
+    // External consumers see <see cref="Count"/>, which is _publishedCount.
+    int _count;
+
+    // Publication marker: ids in [0.._publishedCount) are guaranteed fully
+    // initialised and safe for concurrent read by the UI thread. Written under
+    // a release fence so reads of node data after a Volatile.Read of this
+    // field are valid. Streaming loads bump this every ~33 ms; non-streaming
+    // loads bump it once at end of load.
+    int _publishedCount;
+
+    /// <summary>Number of nodes safe to read from any thread.</summary>
+    public int Count => Volatile.Read(ref _publishedCount);
+
+    /// <summary>Fires after a streaming load publishes additional nodes. Raised on a worker thread.</summary>
+    public event Action? DocumentGrew;
 
     // Cache of "[0]".."[N-1]" - array-heavy docs (telemetry, logs) otherwise
     // allocate one short string per element. 100M × 8 byte ref = unavoidable in
@@ -104,8 +121,25 @@ public sealed class JsonTreeDocument
         NextSibling = [];
         StringPool = [];
         _stringPoolCount = 0;
-        Count = 0;
+        _stringCapacity = 0;
+        _nodeCapacity = 0;
+        _count = 0;
+        _lastProgressCount = 0;
+        Volatile.Write(ref _publishedCount, 0);
         _framePool.Clear();
+    }
+
+    /// <summary>
+    /// Publish the current parser-internal count to <see cref="Count"/> readers
+    /// and fire <see cref="DocumentGrew"/>. All node data for ids in
+    /// [0.._count) MUST be fully written before this call (the Volatile.Write
+    /// establishes the release fence). Safe to call on any thread; readers see
+    /// updated state on their next <see cref="Volatile.Read"/>.
+    /// </summary>
+    void Publish()
+    {
+        Volatile.Write(ref _publishedCount, _count);
+        DocumentGrew?.Invoke();
     }
 
     public JsonNodeType TypeOf(int id) => (JsonNodeType)Types[id];
@@ -134,11 +168,12 @@ public sealed class JsonTreeDocument
 
     public int ChildCount(int id)
     {
-        if (id < 0 || id >= Count)
+        int published = Count;
+        if (id < 0 || id >= published)
             return 0;
         int c = FirstChild[id];
         int n = 0;
-        while (c != -1)
+        while (c != -1 && c < published)
         {
             n++;
             c = NextSibling[c];
@@ -148,10 +183,11 @@ public sealed class JsonTreeDocument
 
     public IEnumerable<int> ChildIds(int id)
     {
-        if (id < 0 || id >= Count)
+        int published = Count;
+        if (id < 0 || id >= published)
             yield break;
         int c = FirstChild[id];
-        while (c != -1)
+        while (c != -1 && c < published)
         {
             yield return c;
             c = NextSibling[c];
@@ -199,6 +235,15 @@ public sealed class JsonTreeDocument
         bool jsonl
     )
     {
+        // JSONL: always stream + publish progressively so the UI can render
+        // the first rows almost immediately even for multi-GB files. Skips
+        // the count pass entirely - arrays grow on append.
+        if (jsonl)
+        {
+            await StreamJsonlAsync(path, progress, ct).ConfigureAwait(false);
+            return;
+        }
+
         progress?.Report(new ProgressInfo(1, 3, 0, 0));
         long size = new FileInfo(path).Length;
 
@@ -206,19 +251,19 @@ public sealed class JsonTreeDocument
         {
             byte[] data = await ReadAllBytesAsync(path, progress, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
-            await Task.Run(() => LoadFromBytes(data, progress, ct, jsonl), ct)
+            await Task.Run(() => LoadFromBytes(data, progress, ct, jsonl: false), ct)
                 .ConfigureAwait(false);
             return;
         }
 
-        // Streaming path for files too large to fit in memory.
+        // Streaming path for single-document JSON too large to fit in memory.
+        // Still does the two-pass count+build because we cannot render a
+        // partial subtree of a single root usefully.
         progress?.Report(new ProgressInfo(2, 3, 0, 0));
         ParseStats stats;
         using (var s1 = OpenSequentialRead(path))
         {
-            stats = jsonl
-                ? await CountJsonlFromStreamAsync(s1, progress, ct).ConfigureAwait(false)
-                : await CountFromStreamAsync(s1, progress, ct).ConfigureAwait(false);
+            stats = await CountFromStreamAsync(s1, progress, ct).ConfigureAwait(false);
         }
         ct.ThrowIfCancellationRequested();
         progress?.Report(new ProgressInfo(3, 3, stats.TotalCount, 0));
@@ -226,15 +271,168 @@ public sealed class JsonTreeDocument
         AllocateArrays(stats.TotalCount, stats.StringCount);
         using (var s2 = OpenSequentialRead(path))
         {
-            if (jsonl)
-                await BuildJsonlFromStreamAsync(s2, stats.TotalCount, progress, ct)
-                    .ConfigureAwait(false);
-            else
-                await BuildFromStreamAsync(s2, stats.TotalCount, progress, ct)
-                    .ConfigureAwait(false);
+            await BuildFromStreamAsync(s2, stats.TotalCount, progress, ct)
+                .ConfigureAwait(false);
         }
         ValidateRoot();
+        Publish();
         progress?.Report(new ProgressInfo(3, 3, stats.TotalCount, 1.0));
+    }
+
+    // -------------------------------------------------------------------------
+    // Streaming JSONL with progressive publish.
+    //
+    // Single pass: read chunks, parse complete lines, append nodes to the
+    // grow-on-write arrays, link top-level values into the synthetic root via
+    // a persistent tail pointer. Every ~33 ms (and at the very end) Publish()
+    // bumps the visible Count and fires DocumentGrew so the UI grows live.
+    // No count pass; no second IO pass.
+    // -------------------------------------------------------------------------
+    const long StreamPublishIntervalTicks = 33;
+
+    async Task StreamJsonlAsync(
+        string path,
+        IProgress<ProgressInfo>? progress,
+        CancellationToken ct
+    )
+    {
+        long totalBytes = new FileInfo(path).Length;
+
+        // Synthetic Array root + persistent build context spanning the whole
+        // load. Each line resets only StashedKey on the context.
+        var stack = new Stack<Frame>();
+        var ctx = new BuildContext { Stack = stack };
+        int rootId = AddArray(string.Empty);
+        Parents[rootId] = -1;
+        var rootFrame = RentFrame(rootId, isObject: false);
+        rootFrame.IsStreamingRoot = true;
+        stack.Push(rootFrame);
+        Publish();
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
+        int bytesInBuffer = 0;
+        bool reachedEnd = false;
+        long lastPublishTicks = Environment.TickCount64;
+
+        using var stream = OpenSequentialRead(path);
+        try
+        {
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!reachedEnd)
+                {
+                    int read = await stream
+                        .ReadAsync(
+                            buffer.AsMemory(bytesInBuffer, buffer.Length - bytesInBuffer),
+                            ct
+                        )
+                        .ConfigureAwait(false);
+                    bytesInBuffer += read;
+                    if (read == 0)
+                        reachedEnd = true;
+                }
+
+                int consumed = StreamJsonlChunk(
+                    buffer.AsSpan(0, bytesInBuffer),
+                    reachedEnd,
+                    this,
+                    ctx
+                );
+
+                if (reachedEnd && consumed == bytesInBuffer)
+                    break;
+
+                if (consumed > 0 && consumed < bytesInBuffer)
+                    Buffer.BlockCopy(buffer, consumed, buffer, 0, bytesInBuffer - consumed);
+                bytesInBuffer -= consumed;
+
+                // Publish + progress every ~33 ms. Doing it after each chunk
+                // (rather than after each line) avoids cache-line ping-pong
+                // on _publishedCount and keeps the UI thread's event posts
+                // bounded at ~30 Hz.
+                long now = Environment.TickCount64;
+                if (now - lastPublishTicks >= StreamPublishIntervalTicks)
+                {
+                    Publish();
+                    if (totalBytes > 0)
+                    {
+                        long pos = stream.Position - bytesInBuffer;
+                        progress?.Report(
+                            new ProgressInfo(3, 3, _count, (double)pos / totalBytes)
+                        );
+                    }
+                    lastPublishTicks = now;
+                }
+
+                if (consumed == 0 && !reachedEnd && bytesInBuffer == buffer.Length)
+                {
+                    if (buffer.Length >= MaxStreamChunkBuffer)
+                        throw new InvalidDataException(
+                            Localization.F(
+                                "Error.JsonlLineTooLong",
+                                MaxStreamChunkBuffer / (1024 * 1024)
+                            )
+                        );
+                    int newSize = (int)Math.Min((long)buffer.Length * 2, MaxStreamChunkBuffer);
+                    var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
+                    Buffer.BlockCopy(buffer, 0, newBuf, 0, bytesInBuffer);
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    buffer = newBuf;
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            ReturnAllFrames(stack);
+            // Final publish so cancellation and successful completion both
+            // leave the visible Count equal to whatever we managed to parse.
+            Publish();
+        }
+
+        ValidateRoot();
+        progress?.Report(new ProgressInfo(3, 3, _count, 1.0));
+    }
+
+    static int StreamJsonlChunk(
+        ReadOnlySpan<byte> data,
+        bool isFinal,
+        JsonTreeDocument doc,
+        BuildContext ctx
+    )
+    {
+        int pos = 0;
+        while (pos < data.Length)
+        {
+            int rel = data.Slice(pos).IndexOf((byte)'\n');
+            if (rel < 0)
+            {
+                if (!isFinal)
+                    return pos;
+                var tail = TrimAsciiWs(data.Slice(pos));
+                if (!tail.IsEmpty)
+                    ParseStreamingLine(doc, ctx, tail);
+                return data.Length;
+            }
+            int lineEnd = pos + rel;
+            int adjEnd = lineEnd;
+            if (adjEnd > pos && data[adjEnd - 1] == (byte)'\r')
+                adjEnd--;
+            var line = TrimAsciiWs(data.Slice(pos, adjEnd - pos));
+            if (!line.IsEmpty)
+                ParseStreamingLine(doc, ctx, line);
+            pos = lineEnd + 1;
+        }
+        return pos;
+    }
+
+    static void ParseStreamingLine(JsonTreeDocument doc, BuildContext ctx, ReadOnlySpan<byte> line)
+    {
+        ctx.StashedKey = null;
+        var reader = new Utf8JsonReader(line, isFinalBlock: true, default);
+        while (reader.Read())
+            doc.HandleToken(ref reader, ctx);
     }
 
     static FileStream OpenSequentialRead(string path) =>
@@ -290,6 +488,7 @@ public sealed class JsonTreeDocument
         else
             BuildFromSpan(data, stats.TotalCount, progress, ct);
         ValidateRoot();
+        Publish();
         progress?.Report(new ProgressInfo(3, 3, stats.TotalCount, 1.0));
     }
 
@@ -452,11 +651,11 @@ public sealed class JsonTreeDocument
                 }
                 pos = lineEnd + 1;
                 ct.ThrowIfCancellationRequested();
-                if (expectedSize > 0 && Count - _lastProgressCount >= ProgressTick)
+                if (expectedSize > 0 && _count - _lastProgressCount >= ProgressTick)
                 {
-                    _lastProgressCount = Count;
+                    _lastProgressCount = _count;
                     progress?.Report(
-                        new ProgressInfo(3, 3, expectedSize, (double)Count / expectedSize)
+                        new ProgressInfo(3, 3, expectedSize, (double)_count / expectedSize)
                     );
                 }
             }
@@ -716,10 +915,10 @@ public sealed class JsonTreeDocument
     {
         if (expectedSize <= 0)
             return;
-        if (doc.Count - doc._lastProgressCount < ProgressTick)
+        if (doc._count - doc._lastProgressCount < ProgressTick)
             return;
-        doc._lastProgressCount = doc.Count;
-        progress?.Report(new ProgressInfo(3, 3, expectedSize, (double)doc.Count / expectedSize));
+        doc._lastProgressCount = doc._count;
+        progress?.Report(new ProgressInfo(3, 3, expectedSize, (double)doc._count / expectedSize));
     }
 
     // Create the synthetic Array root that holds top-level JSONL values as children.
@@ -755,11 +954,11 @@ public sealed class JsonTreeDocument
         {
             HandleToken(ref reader, ctx);
 
-            if (expectedSize > 0 && Count % ProgressTick == 0)
+            if (expectedSize > 0 && _count % ProgressTick == 0)
             {
                 ct.ThrowIfCancellationRequested();
                 progress?.Report(
-                    new ProgressInfo(3, 3, expectedSize, (double)Count / expectedSize)
+                    new ProgressInfo(3, 3, expectedSize, (double)_count / expectedSize)
                 );
             }
         }
@@ -815,7 +1014,7 @@ public sealed class JsonTreeDocument
             case JsonTokenType.String:
             {
                 string key = CurrentKey(ctx);
-                string val = reader.GetString() ?? string.Empty;
+                string val = InternValue(ctx, reader.GetString() ?? string.Empty);
                 int id = AddString(key, val);
                 AttachToParent(ctx, id);
                 ctx.StashedKey = null;
@@ -868,17 +1067,57 @@ public sealed class JsonTreeDocument
         FirstChild = new int[size];
         NextSibling = new int[size];
         StringPool = stringCount > 0 ? new string[stringCount] : Array.Empty<string>();
+        _nodeCapacity = size;
+        _stringCapacity = stringCount;
         _stringPoolCount = 0;
         Array.Fill(Parents, -1);
         Array.Fill(FirstChild, -1);
         Array.Fill(NextSibling, -1);
-        Count = 0;
+        _count = 0;
         _lastProgressCount = 0;
+        Volatile.Write(ref _publishedCount, 0);
+    }
+
+    /// <summary>
+    /// Grow the parallel node arrays to hold at least <paramref name="needed"/>
+    /// entries, doubling current capacity each time. New link-array slots are
+    /// filled with -1 so unwritten nodes look empty to chain walkers.
+    /// </summary>
+    void EnsureNodeCapacity(int needed)
+    {
+        if (needed <= _nodeCapacity)
+            return;
+        int newCap = _nodeCapacity == 0 ? 16 * 1024 : _nodeCapacity;
+        while (newCap < needed)
+            newCap *= 2;
+        int oldCap = _nodeCapacity;
+        Array.Resize(ref Types, newCap);
+        Array.Resize(ref Keys, newCap);
+        Array.Resize(ref Values, newCap);
+        Array.Resize(ref Parents, newCap);
+        Array.Resize(ref FirstChild, newCap);
+        Array.Resize(ref NextSibling, newCap);
+        int added = newCap - oldCap;
+        Array.Fill(Parents, -1, oldCap, added);
+        Array.Fill(FirstChild, -1, oldCap, added);
+        Array.Fill(NextSibling, -1, oldCap, added);
+        _nodeCapacity = newCap;
+    }
+
+    void EnsureStringCapacity(int needed)
+    {
+        if (needed <= _stringCapacity)
+            return;
+        int newCap = _stringCapacity == 0 ? 16 * 1024 : _stringCapacity;
+        while (newCap < needed)
+            newCap *= 2;
+        Array.Resize(ref StringPool, newCap);
+        _stringCapacity = newCap;
     }
 
     void ValidateRoot()
     {
-        if (Count == 0)
+        if (_count == 0)
             throw new InvalidDataException(Localization.T("Error.DocumentEmpty"));
         var rootType = (JsonNodeType)Types[0];
         if (rootType != JsonNodeType.Object && rootType != JsonNodeType.Array)
@@ -1096,10 +1335,10 @@ public sealed class JsonTreeDocument
         {
             doc.HandleToken(ref reader, ctx);
 
-            if (expectedSize > 0 && doc.Count % ProgressTick == 0)
+            if (expectedSize > 0 && doc._count % ProgressTick == 0)
             {
                 progress?.Report(
-                    new ProgressInfo(3, 3, expectedSize, (double)doc.Count / expectedSize)
+                    new ProgressInfo(3, 3, expectedSize, (double)doc._count / expectedSize)
                 );
             }
         }
@@ -1117,6 +1356,12 @@ public sealed class JsonTreeDocument
         public bool IsObject;
         public int ArrayIndex;
         public List<int> Children = new(4);
+
+        // Streaming-root only: this frame lives for the whole streaming JSONL
+        // load and we link its top-level children eagerly via Tail rather than
+        // accumulating them in Children (which would grow to the line count).
+        public bool IsStreamingRoot;
+        public int Tail = -1;
     }
 
     sealed class BuildContext
@@ -1129,13 +1374,44 @@ public sealed class JsonTreeDocument
         // canonical string is reused across millions of nodes. Saves on the
         // permanent string heap, not on Keys[] slot count.
         public Dictionary<string, string> KeyInterner = new(StringComparer.Ordinal);
+
+        // Short String VALUES (e.g. enum-like fields: "user"/"assistant",
+        // status codes, units) also tend to repeat. This collapses those
+        // duplicates so the StringPool holds one canonical CLR string per
+        // value instead of millions of clones. Capped to bound the dictionary
+        // on pathological inputs where every short value is unique.
+        public Dictionary<string, string> ValueInterner = new(StringComparer.Ordinal);
     }
+
+    // Only intern values up to this length. Above it, dedupe hit-rate drops
+    // sharply and the per-string saving is dominated by the string content
+    // itself, which interning doesn't help.
+    const int MaxInternedValueLength = 64;
+
+    // Safety valve: stop adding to the value-intern dictionary past this many
+    // distinct entries. Lookups still succeed for previously seen values.
+    // 128 K * (~50B dict overhead + 24B string header) ~= 10 MB worst case.
+    const int MaxInternedValueEntries = 128 * 1024;
 
     static string InternKey(BuildContext ctx, string raw)
     {
         if (ctx.KeyInterner.TryGetValue(raw, out var canonical))
             return canonical;
         ctx.KeyInterner[raw] = raw;
+        return raw;
+    }
+
+    static string InternValue(BuildContext ctx, string raw)
+    {
+        if (raw.Length == 0)
+            return string.Empty;
+        if (raw.Length > MaxInternedValueLength)
+            return raw;
+        if (ctx.ValueInterner.TryGetValue(raw, out var canonical))
+            return canonical;
+        if (ctx.ValueInterner.Count >= MaxInternedValueEntries)
+            return raw;
+        ctx.ValueInterner[raw] = raw;
         return raw;
     }
 
@@ -1156,6 +1432,8 @@ public sealed class JsonTreeDocument
         f.Id = id;
         f.IsObject = isObject;
         f.ArrayIndex = 0;
+        f.IsStreamingRoot = false;
+        f.Tail = -1;
         return f;
     }
 
@@ -1203,7 +1481,8 @@ public sealed class JsonTreeDocument
 
     int AddObject(string key)
     {
-        int id = Count++;
+        EnsureNodeCapacity(_count + 1);
+        int id = _count++;
         Types[id] = (byte)JsonNodeType.Object;
         Keys[id] = key;
         return id;
@@ -1211,7 +1490,8 @@ public sealed class JsonTreeDocument
 
     int AddArray(string key)
     {
-        int id = Count++;
+        EnsureNodeCapacity(_count + 1);
+        int id = _count++;
         Types[id] = (byte)JsonNodeType.Array;
         Keys[id] = key;
         return id;
@@ -1219,7 +1499,9 @@ public sealed class JsonTreeDocument
 
     int AddString(string key, string value)
     {
-        int id = Count++;
+        EnsureNodeCapacity(_count + 1);
+        EnsureStringCapacity(_stringPoolCount + 1);
+        int id = _count++;
         Types[id] = (byte)JsonNodeType.String;
         Keys[id] = key;
         int poolIdx = _stringPoolCount++;
@@ -1230,7 +1512,8 @@ public sealed class JsonTreeDocument
 
     int AddNumber(string key, double value)
     {
-        int id = Count++;
+        EnsureNodeCapacity(_count + 1);
+        int id = _count++;
         Types[id] = (byte)JsonNodeType.Number;
         Keys[id] = key;
         Values[id] = BitConverter.DoubleToInt64Bits(value);
@@ -1239,7 +1522,8 @@ public sealed class JsonTreeDocument
 
     int AddBool(string key, bool value)
     {
-        int id = Count++;
+        EnsureNodeCapacity(_count + 1);
+        int id = _count++;
         Types[id] = (byte)JsonNodeType.Boolean;
         Keys[id] = key;
         Values[id] = value ? 1L : 0L;
@@ -1248,7 +1532,8 @@ public sealed class JsonTreeDocument
 
     int AddNull(string key)
     {
-        int id = Count++;
+        EnsureNodeCapacity(_count + 1);
+        int id = _count++;
         Types[id] = (byte)JsonNodeType.Null;
         Keys[id] = key;
         return id;
@@ -1264,6 +1549,19 @@ public sealed class JsonTreeDocument
         }
         var top = ctx.Stack.Peek();
         Parents[childId] = top.Id;
+        if (top.IsStreamingRoot)
+        {
+            // Eager link into the root's child chain via tail pointer. Avoids
+            // accumulating millions of ids in top.Children. The link write to
+            // NextSibling[oldTail] happens here; readers must filter chain
+            // walks by Count to skip nodes added after the last Publish().
+            if (top.Tail == -1)
+                FirstChild[top.Id] = childId;
+            else
+                NextSibling[top.Tail] = childId;
+            top.Tail = childId;
+            return;
+        }
         top.Children.Add(childId);
     }
 

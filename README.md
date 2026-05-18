@@ -27,7 +27,8 @@
 - Open files from the file picker, clipboard, drag and drop, or a command line argument.
 - Search keys and values with wildcard patterns.
 - Export the selected JSON branch to a new file or copy it to the clipboard.
-- View very large JSON files, like >2GB documents with 100MB+ elements without heavy memory issues or UI freezes.
+- View very large JSON files, like >2GB documents with 100MB+ elements.
+- Loading can be canceled at any time without heavy memory issues or UI freezes.
 - Switch between light and dark themes.
 - Locale support: English, Chinese, French, Japanese, Korean, Portuguese, Russian, Spanish.
 
@@ -39,7 +40,8 @@
 
 [![Demo](demo.png)](./)
 
-- Fully loaded and rendered a 12GB JSONL with 66M elements in approx. 100 sec. (on a HDD).
+- Instant loading.
+- Fully loaded and rendered a 12GB JSONL with 66M elements in approx. 53 sec. (on a HDD).
 - Actual speed can vary by device hardware, especially CPU, memory capacity, storage speed, and thermal conditions.
 - This result is a reference measurement, not a guaranteed speed on every machine.
 

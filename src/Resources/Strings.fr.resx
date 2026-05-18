@@ -114,6 +114,9 @@
   <data name="Loading.Canceled" xml:space="preserve">
     <value>Chargement annulé.</value>
   </data>
+  <data name="Loading.Optimizing" xml:space="preserve">
+    <value>Optimisation de la mémoire, l'interface peut se figer un instant…</value>
+  </data>
   <data name="Loading.Canceling" xml:space="preserve">
     <value>Annulation du chargement...</value>
   </data>

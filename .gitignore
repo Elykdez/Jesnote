@@ -41,6 +41,7 @@ ScaffoldingReadMe.txt
 
 # dotenv environment variables file
 .env
+*.lscache
 
 # Others
 ~$*

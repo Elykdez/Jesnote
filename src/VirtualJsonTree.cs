@@ -30,6 +30,12 @@ public sealed class VirtualJsonTree : Control
     int _firstVisibleRow;
     int _selectedRow = -1;
 
+    // Last synthetic-root child appended to _visible. Streaming loads only
+    // append new top-level children; we resume from this id rather than
+    // rebuilding the whole visible list each grow tick. Reset by Document
+    // setter and RebuildVisible.
+    int _streamingRootTailRendered = -1;
+
     public event EventHandler<int>? SelectionChanged;
     public event EventHandler? ScrollInfoChanged;
 
@@ -73,14 +79,65 @@ public sealed class VirtualJsonTree : Control
             _depths.Clear();
             _firstVisibleRow = 0;
             _selectedRow = -1;
-            if (_doc != null && _doc.Count > 0)
+            _streamingRootTailRendered = -1;
+            if (_doc != null)
             {
+                // Pre-open root so any subsequent OnDocumentGrew can start
+                // appending top-level children immediately. RebuildVisible is
+                // a no-op when Count == 0 (streaming-load attach point).
                 _openBranches.Add(JsonTreeDocument.RootId);
-                RebuildVisible();
+                if (_doc.Count > 0)
+                    RebuildVisible();
             }
             OnScrollInfoChanged();
             InvalidateVisual();
         }
+    }
+
+    /// <summary>
+    /// Called from the UI thread when the document publishes more nodes.
+    /// Appends any newly-published direct children of the synthetic root to
+    /// the visible list without rebuilding it; deeper expansions remain
+    /// untouched. Cheap: O(new root children) per call.
+    /// </summary>
+    public void OnDocumentGrew()
+    {
+        if (_doc == null)
+            return;
+        int published = _doc.Count;
+        if (published == 0)
+        {
+            OnScrollInfoChanged();
+            return;
+        }
+
+        int rootId = JsonTreeDocument.RootId;
+        if (!_openBranches.Contains(rootId))
+        {
+            OnScrollInfoChanged();
+            InvalidateVisual();
+            return;
+        }
+
+        int cur =
+            _streamingRootTailRendered == -1
+                ? _doc.FirstChild[rootId]
+                : _doc.NextSibling[_streamingRootTailRendered];
+
+        int added = 0;
+        while (cur != -1 && cur < published)
+        {
+            _visible.Add(cur);
+            _depths.Add(0);
+            _streamingRootTailRendered = cur;
+            cur = _doc.NextSibling[cur];
+            added++;
+        }
+
+        if (added > 0)
+            SetFirstVisibleRow(_firstVisibleRow, invalidate: false, notify: false);
+        OnScrollInfoChanged();
+        InvalidateVisual();
     }
 
     public int SelectedId =>
@@ -191,18 +248,19 @@ public sealed class VirtualJsonTree : Control
         if (_doc == null || !_doc.IsBranch(id) || !_openBranches.Add(id))
             return;
 
+        int published = _doc.Count;
         int depth = _depths[row];
         var ids = new List<int>();
         var depths = new List<int>();
         var stack = new Stack<(int Id, int Depth)>();
-        PushChildrenReversed(id, depth + 1, stack);
+        PushChildrenReversed(id, depth + 1, stack, published);
         while (stack.Count > 0)
         {
             var (child, childDepth) = stack.Pop();
             ids.Add(child);
             depths.Add(childDepth);
             if (_doc.IsBranch(child) && _openBranches.Contains(child))
-                PushChildrenReversed(child, childDepth + 1, stack);
+                PushChildrenReversed(child, childDepth + 1, stack, published);
         }
 
         _visible.InsertRange(row + 1, ids);
@@ -315,19 +373,23 @@ public sealed class VirtualJsonTree : Control
     {
         _visible.Clear();
         _depths.Clear();
+        _streamingRootTailRendered = -1;
         if (_doc == null || _doc.Count == 0)
             return;
 
+        int published = _doc.Count;
         var stack = new Stack<(int Id, int Depth)>();
-        PushChildrenReversed(JsonTreeDocument.RootId, 0, stack);
+        PushChildrenReversed(JsonTreeDocument.RootId, 0, stack, published);
         while (stack.Count > 0)
         {
             var (id, depth) = stack.Pop();
             _visible.Add(id);
             _depths.Add(depth);
+            if (depth == 0)
+                _streamingRootTailRendered = id;
 
             if (_doc.IsBranch(id) && _openBranches.Contains(id))
-                PushChildrenReversed(id, depth + 1, stack);
+                PushChildrenReversed(id, depth + 1, stack, published);
         }
 
         if (_selectedRow >= _visible.Count)
@@ -335,19 +397,22 @@ public sealed class VirtualJsonTree : Control
         SetFirstVisibleRow(_firstVisibleRow, invalidate: false, notify: false);
     }
 
-    void PushChildrenReversed(int parentId, int depth, Stack<(int Id, int Depth)> stack)
+    // published is the snapshot of _doc.Count taken by the caller. The chain
+    // may extend past published while a streaming load is mid-publish; we
+    // must stop at the boundary or risk reading half-initialised nodes.
+    void PushChildrenReversed(int parentId, int depth, Stack<(int Id, int Depth)> stack, int published)
     {
         int child = _doc!.FirstChild[parentId];
-        if (child == -1)
+        if (child == -1 || child >= published)
             return;
 
         int count = 0;
-        for (int cur = child; cur != -1; cur = _doc.NextSibling[cur])
+        for (int cur = child; cur != -1 && cur < published; cur = _doc.NextSibling[cur])
             count++;
 
         Span<int> kids = count <= 64 ? stackalloc int[count] : new int[count];
         int index = 0;
-        for (int cur = child; cur != -1; cur = _doc.NextSibling[cur])
+        for (int cur = child; cur != -1 && cur < published; cur = _doc.NextSibling[cur])
             kids[index++] = cur;
 
         for (int i = count - 1; i >= 0; i--)

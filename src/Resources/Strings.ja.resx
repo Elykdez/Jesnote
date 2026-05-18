@@ -114,6 +114,9 @@
   <data name="Loading.Canceled" xml:space="preserve">
     <value>読み込みをキャンセルしました。</value>
   </data>
+  <data name="Loading.Optimizing" xml:space="preserve">
+    <value>メモリを最適化しています。UI が一瞬固まる場合があります…</value>
+  </data>
   <data name="Loading.Canceling" xml:space="preserve">
     <value>読み込みをキャンセルしています...</value>
   </data>

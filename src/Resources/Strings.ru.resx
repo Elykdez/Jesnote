@@ -114,6 +114,9 @@
   <data name="Loading.Canceled" xml:space="preserve">
     <value>Загрузка отменена.</value>
   </data>
+  <data name="Loading.Optimizing" xml:space="preserve">
+    <value>Оптимизация памяти, интерфейс может ненадолго зависнуть…</value>
+  </data>
   <data name="Loading.Canceling" xml:space="preserve">
     <value>Отмена загрузки...</value>
   </data>

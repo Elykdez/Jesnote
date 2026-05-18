@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -513,11 +514,13 @@ public sealed class MainWindow : Window, ILocalizable
             return;
         }
 
+        bool jsonl = IsJsonlPath(path);
         await LoadCoreAsync(
             Path.GetFileName(path),
             addRecent: true,
             path,
-            (progress, ct) => _doc.LoadAsync(path, progress, ct, IsJsonlPath(path))
+            (progress, ct) => _doc.LoadAsync(path, progress, ct, jsonl),
+            streaming: jsonl
         );
     }
 
@@ -527,7 +530,8 @@ public sealed class MainWindow : Window, ILocalizable
             label,
             addRecent: false,
             path: null,
-            (progress, ct) => _doc.LoadAsync(data, progress, ct)
+            (progress, ct) => _doc.LoadAsync(data, progress, ct),
+            streaming: false
         );
     }
 
@@ -535,7 +539,8 @@ public sealed class MainWindow : Window, ILocalizable
         string label,
         bool addRecent,
         string? path,
-        Func<IProgress<ProgressInfo>, CancellationToken, Task> load
+        Func<IProgress<ProgressInfo>, CancellationToken, Task> load,
+        bool streaming
     )
     {
         if (_busy)
@@ -555,6 +560,18 @@ public sealed class MainWindow : Window, ILocalizable
         var stopwatch = Stopwatch.StartNew();
         IProgress<ProgressInfo> progress = new ThrottledProgress(this, label);
 
+        Action? growHandler = null;
+        if (streaming)
+        {
+            // Attach the document before the load starts so the tree can
+            // render rows the instant the first publish lands. The synthetic
+            // root is empty initially; OnDocumentGrew will append children
+            // as they are published.
+            _tree.Document = _doc;
+            growHandler = OnDocumentGrewFromWorker;
+            _doc.DocumentGrew += growHandler;
+        }
+
         try
         {
             await load(progress, cts.Token);
@@ -562,8 +579,11 @@ public sealed class MainWindow : Window, ILocalizable
             _currentFile = path;
             _currentLabel = label;
             _lastLoadDuration = stopwatch.Elapsed;
-            _tree.Document = _doc;
-            if (_tree.FirstDocumentId >= 0)
+            if (!streaming)
+                _tree.Document = _doc;
+            else
+                _tree.OnDocumentGrew();
+            if (_tree.SelectedId < 0 && _tree.FirstDocumentId >= 0)
                 _tree.SelectId(_tree.FirstDocumentId);
             SetHasDocument(true);
             SetTitle(label);
@@ -574,17 +594,56 @@ public sealed class MainWindow : Window, ILocalizable
                 _settings.Save();
                 RebuildRecentFilesMenu();
             }
+            // Force a full GC + LOH compaction so all parser-only garbage
+            // (Utf8JsonReader scratch strings, BuildContext intern dicts,
+            // resized-out arrays) is reclaimed promptly. Without this, Server
+            // GC keeps committed memory high after a big load and Task
+            // Manager underreports the real savings.
+            //
+            // GC.Collect is stop-the-world so the UI freezes for 1-2 s on
+            // large heaps. We show a hint, pump the dispatcher once so the
+            // hint paints, then run the collection on a worker (still freezes
+            // the UI, but at least the user sees why).
+            SetStatus(Localization.T("Loading.Optimizing"));
+            await Task.Yield();
+            Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+            await Task.Run(ReleaseParserGarbage);
+            long managed = GC.GetTotalMemory(forceFullCollection: false);
             SetStatus(
-                $"{_doc.Count:N0} elements loaded in {FormatDuration(stopwatch.Elapsed)} from {label}"
+                $"{_doc.Count:N0} elements loaded in {FormatDuration(stopwatch.Elapsed)} from {label} (managed heap: {FormatBytes(managed)})"
             );
         }
         catch (OperationCanceledException)
         {
-            _doc.Reset();
-            _tree.Document = null;
-            _detail.Text = "";
-            SetHasDocument(false);
-            SetStatus(Localization.T("Loading.Canceled"));
+            // Count == 1 means only the synthetic root was added before
+            // cancellation - nothing worth keeping; fall through to reset.
+            if (streaming && _doc.Count > 1)
+            {
+                // Keep whatever was already streamed - the synthetic root and
+                // however many top-level values made it through. The user
+                // can browse the partial document.
+                stopwatch.Stop();
+                _currentFile = path;
+                _currentLabel = label;
+                _lastLoadDuration = stopwatch.Elapsed;
+                _tree.OnDocumentGrew();
+                if (_tree.SelectedId < 0 && _tree.FirstDocumentId >= 0)
+                    _tree.SelectId(_tree.FirstDocumentId);
+                SetHasDocument(true);
+                SetTitle(label);
+                SetStatus(
+                    Localization.T("Loading.Canceled")
+                    + $" {_doc.Count:N0} elements available."
+                );
+            }
+            else
+            {
+                _doc.Reset();
+                _tree.Document = null;
+                _detail.Text = "";
+                SetHasDocument(false);
+                SetStatus(Localization.T("Loading.Canceled"));
+            }
         }
         catch (Exception ex)
         {
@@ -596,10 +655,31 @@ public sealed class MainWindow : Window, ILocalizable
         }
         finally
         {
+            if (growHandler != null)
+                _doc.DocumentGrew -= growHandler;
             if (ReferenceEquals(_loadCts, cts))
                 _loadCts = null;
             SetBusy(false);
         }
+    }
+
+    // Fires on the parser thread. We coalesce on a single pending UI post so
+    // a burst of grow events (one per ~33 ms in the parser) maps to at most
+    // one UI-thread refresh per dispatcher tick.
+    int _growPostPending;
+
+    void OnDocumentGrewFromWorker()
+    {
+        if (Interlocked.Exchange(ref _growPostPending, 1) == 1)
+            return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            Volatile.Write(ref _growPostPending, 0);
+            if (_tree.Document == null)
+                return;
+            _tree.OnDocumentGrew();
+            UpdateElementsLabel();
+        });
     }
 
     void CancelActiveLoad()
@@ -1100,7 +1180,7 @@ public sealed class MainWindow : Window, ILocalizable
     void SetBusy(bool busy)
     {
         _busy = busy;
-        Cursor = busy ? new Cursor(StandardCursorType.Wait) : Cursor.Default;
+        Cursor = busy ? new Cursor(StandardCursorType.AppStarting) : Cursor.Default;
         _fileMenu.IsEnabled = !busy;
         _viewMenu.IsEnabled = !busy;
         _goMenu.IsEnabled = !busy;
@@ -1272,6 +1352,27 @@ public sealed class MainWindow : Window, ILocalizable
     }
 
     static string FormatThousands(int n) => n.ToString("N0", CultureInfo.CurrentCulture);
+
+    static string FormatBytes(long bytes)
+    {
+        const double GiB = 1024.0 * 1024.0 * 1024.0;
+        const double MiB = 1024.0 * 1024.0;
+        if (bytes >= GiB) return $"{bytes / GiB:0.##} GiB";
+        if (bytes >= MiB) return $"{bytes / MiB:0.#} MiB";
+        return $"{bytes / 1024.0:0.#} KiB";
+    }
+
+    // Reclaim parser-side garbage (Utf8JsonReader scratch strings, the
+    // BuildContext interner dictionaries, arrays that were superseded by
+    // grow-resize) so the post-load working set reflects what is actually
+    // retained. Without this Server GC keeps committed memory near the peak.
+    static void ReleaseParserGarbage()
+    {
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+    }
 
     sealed class ThrottledProgress(MainWindow owner, string label) : IProgress<ProgressInfo>
     {

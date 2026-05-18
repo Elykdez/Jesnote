@@ -114,6 +114,9 @@
   <data name="Loading.Canceled" xml:space="preserve">
     <value>로드가 취소되었습니다.</value>
   </data>
+  <data name="Loading.Optimizing" xml:space="preserve">
+    <value>메모리를 최적화하는 중입니다. UI가 잠시 멈출 수 있습니다…</value>
+  </data>
   <data name="Loading.Canceling" xml:space="preserve">
     <value>로드 취소 중...</value>
   </data>
