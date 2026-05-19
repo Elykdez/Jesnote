@@ -30,6 +30,11 @@ public sealed class VirtualJsonTree : Control
     int _firstVisibleRow;
     int _selectedRow = -1;
 
+    // Full selection set, used for multi-select export and as the source of
+    // truth for paint highlights. Always contains <see cref="SelectedId"/>
+    // when single-select; Ctrl/Shift+click grows or rewrites it.
+    readonly HashSet<int> _selectedIds = [];
+
     // Last synthetic-root child appended to _visible. Streaming loads only
     // append new top-level children; we resume from this id rather than
     // rebuilding the whole visible list each grow tick. Reset by Document
@@ -79,6 +84,7 @@ public sealed class VirtualJsonTree : Control
             _depths.Clear();
             _firstVisibleRow = 0;
             _selectedRow = -1;
+            _selectedIds.Clear();
             _streamingRootTailRendered = -1;
             if (_doc != null)
             {
@@ -142,6 +148,12 @@ public sealed class VirtualJsonTree : Control
 
     public int SelectedId =>
         _selectedRow >= 0 && _selectedRow < _visible.Count ? _visible[_selectedRow] : -1;
+
+    /// <summary>
+    /// All currently selected node ids. Empty when nothing is selected;
+    /// contains <see cref="SelectedId"/> plus any Ctrl/Shift extensions.
+    /// </summary>
+    public IReadOnlyCollection<int> SelectedIds => _selectedIds;
 
     public int FirstDocumentId => _visible.Count > 0 ? _visible[0] : -1;
 
@@ -329,6 +341,8 @@ public sealed class VirtualJsonTree : Control
             return;
 
         _selectedRow = row;
+        _selectedIds.Clear();
+        _selectedIds.Add(id);
         EnsureSelectedRowInViewport();
         SelectionChanged?.Invoke(this, id);
         InvalidateVisual();
@@ -368,6 +382,18 @@ public sealed class VirtualJsonTree : Control
     #endregion
 
     #region Visible Row Maintenance
+
+    /// <summary>
+    /// Forces a full rebuild of the visible row list and repaints. Used
+    /// after a document mutation (e.g. union) where existing branches gained
+    /// children or siblings beyond what incremental tracking can catch.
+    /// </summary>
+    public void RefreshVisible()
+    {
+        RebuildVisible();
+        OnScrollInfoChanged();
+        InvalidateVisual();
+    }
 
     void RebuildVisible()
     {
@@ -443,7 +469,15 @@ public sealed class VirtualJsonTree : Control
             double y = (row - _firstVisibleRow) * RowHeight;
             int id = _visible[row];
             int depth = _depths[row];
-            bool selected = row == _selectedRow;
+            bool selected = _selectedIds.Contains(id);
+            // ModifiedIds is empty in steady state; a HashSet.Contains hit is O(1).
+            bool modified = _doc.ModifiedIds.Count > 0 && _doc.ModifiedIds.Contains(id);
+
+            if (modified && !selected)
+                context.FillRectangle(
+                    palette.ModifiedBackBrush,
+                    new Rect(0, y, Bounds.Width, RowHeight)
+                );
 
             if (selected)
                 context.FillRectangle(
@@ -559,9 +593,40 @@ public sealed class VirtualJsonTree : Control
         if (row < 0 || row >= _visible.Count)
             return;
 
-        _selectedRow = row;
         int id = _visible[row];
         int depth = _depths[row];
+        var mods = e.KeyModifiers;
+        bool ctrl = (mods & KeyModifiers.Control) != 0;
+        bool shift = (mods & KeyModifiers.Shift) != 0;
+
+        if (shift && _selectedRow >= 0 && _selectedRow < _visible.Count)
+        {
+            // Range select: clear and add every visible id between the prior
+            // primary and the click target, inclusive. Primary moves to the
+            // click target so the next shift-click anchors there.
+            int lo = Math.Min(_selectedRow, row);
+            int hi = Math.Max(_selectedRow, row);
+            _selectedIds.Clear();
+            for (int r = lo; r <= hi; r++)
+                _selectedIds.Add(_visible[r]);
+            _selectedRow = row;
+        }
+        else if (ctrl)
+        {
+            // Toggle this id in/out of the set without disturbing the rest.
+            // Primary updates to the click target either way so subsequent
+            // shift-clicks anchor here.
+            if (!_selectedIds.Add(id))
+                _selectedIds.Remove(id);
+            _selectedRow = row;
+        }
+        else
+        {
+            _selectedRow = row;
+            _selectedIds.Clear();
+            _selectedIds.Add(id);
+        }
+
         double glyphX = 4 + depth * IndentWidth;
         if (_doc.IsBranch(id) && point.X >= glyphX && point.X <= glyphX + 28)
             ToggleBranch(row);
@@ -648,7 +713,12 @@ public sealed class VirtualJsonTree : Control
 
         EnsureSelectedRowInViewport();
         if (_selectedRow != prev && _selectedRow >= 0)
-            SelectionChanged?.Invoke(this, _visible[_selectedRow]);
+        {
+            int id = _visible[_selectedRow];
+            _selectedIds.Clear();
+            _selectedIds.Add(id);
+            SelectionChanged?.Invoke(this, id);
+        }
         e.Handled = true;
         InvalidateVisual();
     }
@@ -667,6 +737,7 @@ public sealed class VirtualJsonTree : Control
         public required IBrush BoolNullBrush { get; init; }
         public required IBrush SelectedBackBrush { get; init; }
         public required IBrush SelectedTextBrush { get; init; }
+        public required IBrush ModifiedBackBrush { get; init; }
 
         public static Palette For(ThemeVariant variant) =>
             variant == ThemeVariant.Dark ? Dark : Light;
@@ -682,6 +753,7 @@ public sealed class VirtualJsonTree : Control
                 BoolNullBrush = new SolidColorBrush(Color.FromRgb(192, 32, 32)),
                 SelectedBackBrush = new SolidColorBrush(Color.FromRgb(0, 120, 215)),
                 SelectedTextBrush = Brushes.White,
+                ModifiedBackBrush = new SolidColorBrush(Color.FromArgb(40, 255, 200, 0)),
             };
 
         static readonly Palette Dark =
@@ -695,6 +767,7 @@ public sealed class VirtualJsonTree : Control
                 BoolNullBrush = new SolidColorBrush(Color.FromRgb(230, 110, 110)),
                 SelectedBackBrush = new SolidColorBrush(Color.FromRgb(38, 79, 120)),
                 SelectedTextBrush = Brushes.White,
+                ModifiedBackBrush = new SolidColorBrush(Color.FromArgb(64, 230, 180, 80)),
             };
     }
 

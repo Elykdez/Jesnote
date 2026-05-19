@@ -13,7 +13,7 @@
     <value>О Jesnote</value>
   </data>
   <data name="About.Version" xml:space="preserve">
-    <value>Версия: {0}  (приложение .NET Avalonia)</value>
+    <value>Версия: {0}  (.NET Avalonia)</value>
   </data>
   <data name="Common.Cancel" xml:space="preserve">
     <value>Отмена</value>
@@ -85,7 +85,7 @@
     <value>Открыть файл JSON или JSONL</value>
   </data>
   <data name="FileDialog.ExportTitle" xml:space="preserve">
-    <value>Экспорт выделения</value>
+    <value>Экспорт выбранного</value>
   </data>
   <data name="JsonNodeType.Array" xml:space="preserve">
     <value>массив</value>
@@ -139,10 +139,10 @@
     <value>Файл</value>
   </data>
   <data name="Menu.File.ExportClipboard" xml:space="preserve">
-    <value>Экспортировать выделение в буфер обмена</value>
+    <value>Экспортировать выбранное в буфер обмена</value>
   </data>
   <data name="Menu.File.ExportFile" xml:space="preserve">
-    <value>Экспортировать выделение в файл...</value>
+    <value>Экспортировать выбранное в файл...</value>
   </data>
   <data name="Menu.File.New" xml:space="preserve">
     <value>Новый</value>
@@ -323,5 +323,122 @@
 
 Откройте файл JSON или JSONL через меню Файл, перетащите файл в это окно
 или импортируйте его из буфера обмена.</value>
+  </data>
+  <data name="Error.SaveFailed" xml:space="preserve">
+    <value>Не удалось сохранить документ.</value>
+  </data>
+  <data name="Error.GraftSourceEmpty" xml:space="preserve">
+    <value>В выбранном документе нечего объединять.</value>
+  </data>
+  <data name="Error.GraftObjectNeedsObject" xml:space="preserve">
+    <value>Целевой объект можно объединить только с другим объектом.</value>
+  </data>
+  <data name="Error.GraftAppendBranchOnly" xml:space="preserve">
+    <value>Выберите объект или массив для объединения.</value>
+  </data>
+  <data name="Error.GraftInsertTopLevelOnly" xml:space="preserve">
+    <value>Выберите запись верхнего уровня для объединения после неё.</value>
+  </data>
+  <data name="Error.GraftLoadFailed" xml:space="preserve">
+    <value>Не удалось загрузить документ для объединения.</value>
+  </data>
+  <data name="Error.GraftFailed" xml:space="preserve">
+    <value>Объединение не удалось:</value>
+  </data>
+  <data name="Error.GraftNoAnchor" xml:space="preserve">
+    <value>Выберите подходящую цель для объединения.</value>
+  </data>
+  <data name="FileDialog.SaveTitle" xml:space="preserve">
+    <value>Сохранить документ</value>
+  </data>
+  <data name="FileDialog.UnionTitle" xml:space="preserve">
+    <value>Выберите документ для объединения</value>
+  </data>
+  <data name="Menu.File.Save" xml:space="preserve">
+    <value>Сохранить</value>
+  </data>
+  <data name="Menu.File.SaveAs" xml:space="preserve">
+    <value>Сохранить как...</value>
+  </data>
+  <data name="Menu.File.UnionWith" xml:space="preserve">
+    <value>Объединить с...</value>
+  </data>
+  <data name="Status.Saved" xml:space="preserve">
+    <value>Сохранено в {0}.</value>
+  </data>
+  <data name="Status.Unioned" xml:space="preserve">
+    <value>Объединено из {0}.</value>
+  </data>
+  <data name="Status.Exported" xml:space="preserve">
+    <value>Выбранное экспортировано.</value>
+  </data>
+  <data name="Status.Copied" xml:space="preserve">
+    <value>Выбранное скопировано.</value>
+  </data>
+  <data name="Status.Deleted" xml:space="preserve">
+    <value>Узел удалён.</value>
+  </data>
+  <data name="Status.Undone" xml:space="preserve">
+    <value>Отменено.</value>
+  </data>
+  <data name="Status.Redone" xml:space="preserve">
+    <value>Повторено.</value>
+  </data>
+  <data name="Toolbar.Edit" xml:space="preserve">
+    <value>Изменить</value>
+  </data>
+  <data name="Toolbar.Add" xml:space="preserve">
+    <value>Добавить</value>
+  </data>
+  <data name="Toolbar.Delete" xml:space="preserve">
+    <value>Удалить</value>
+  </data>
+  <data name="Tooltip.Undo" xml:space="preserve">
+    <value>Отменить (Ctrl+Z)</value>
+  </data>
+  <data name="Tooltip.Redo" xml:space="preserve">
+    <value>Повторить (Ctrl+Y)</value>
+  </data>
+  <data name="Edit.Apply" xml:space="preserve">
+    <value>Применить</value>
+  </data>
+  <data name="Edit.Cancel" xml:space="preserve">
+    <value>Отмена</value>
+  </data>
+  <data name="Edit.Title.EditValue" xml:space="preserve">
+    <value>Изменить значение {0}</value>
+  </data>
+  <data name="Edit.Title.AddChild" xml:space="preserve">
+    <value>Добавить дочерний</value>
+  </data>
+  <data name="Edit.Placeholder.Value" xml:space="preserve">
+    <value>Введите значение и нажмите «Применить»</value>
+  </data>
+  <data name="Error.EditNoLeaf" xml:space="preserve">
+    <value>Чтобы изменить значение, выберите строку, число, логическое значение или null.</value>
+  </data>
+  <data name="Error.EditAddBranchOnly" xml:space="preserve">
+    <value>Чтобы добавить дочерний элемент, выберите объект или массив.</value>
+  </data>
+  <data name="Error.EditAddType" xml:space="preserve">
+    <value>Этот тип узла нельзя добавить.</value>
+  </data>
+  <data name="Error.EditDeleteInvalid" xml:space="preserve">
+    <value>Этот узел нельзя удалить.</value>
+  </data>
+  <data name="Error.EditKeyRequired" xml:space="preserve">
+    <value>Для добавления в объект необходим ключ.</value>
+  </data>
+  <data name="Error.EditBoolFormat" xml:space="preserve">
+    <value>Введите 'true' или 'false'.</value>
+  </data>
+  <data name="Error.EditWrongType" xml:space="preserve">
+    <value>Ожидалось значение типа {0}.</value>
+  </data>
+  <data name="Error.EditChainCorrupt" xml:space="preserve">
+    <value>Внутренняя ошибка: дочерний элемент не найден в цепочке родителя.</value>
+  </data>
+  <data name="Error.EditFailed" xml:space="preserve">
+    <value>Не удалось изменить:</value>
   </data>
 </root>

@@ -50,6 +50,9 @@ public abstract class StringStorage
     /// <summary>Copy the current String token from the reader into storage and return the encoded ref.</summary>
     public abstract long Append(ref Utf8JsonReader reader);
 
+    /// <summary>Store a CLR string value and return the encoded ref. Used by graft to copy strings between documents.</summary>
+    public abstract long AppendString(string value);
+
     /// <summary>Decode a previously-appended value to a CLR string.</summary>
     public abstract string Get(long encoded);
 
@@ -111,6 +114,16 @@ public sealed class Utf8ChunkStringStorage : StringStorage
             // JSON-escape unescaping shrank the byte count; give the tail back.
             _currentOffset -= worst - written;
         }
+        return Encode(chunkIdx, offset, written);
+    }
+
+    public override long AppendString(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return 0L;
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        var (chunk, offset, chunkIdx) = Reserve(byteCount);
+        int written = Encoding.UTF8.GetBytes(value, chunk.AsSpan(offset, byteCount));
         return Encode(chunkIdx, offset, written);
     }
 
@@ -256,6 +269,14 @@ public sealed class PooledStringStorage : StringStorage
         EnsureCapacity(_count + 1);
         int idx = _count++;
         _pool[idx] = value;
+        return idx;
+    }
+
+    public override long AppendString(string value)
+    {
+        EnsureCapacity(_count + 1);
+        int idx = _count++;
+        _pool[idx] = value ?? string.Empty;
         return idx;
     }
 

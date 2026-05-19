@@ -13,7 +13,7 @@
     <value>About Jesnote</value>
   </data>
   <data name="About.Version" xml:space="preserve">
-    <value>Version: {0}  (.NET Avalonia app)</value>
+    <value>Version: {0}  (.NET Avalonia)</value>
   </data>
   <data name="Common.Cancel" xml:space="preserve">
     <value>Cancel</value>
@@ -63,6 +63,30 @@
   <data name="Error.NoSelection" xml:space="preserve">
     <value>No selection.</value>
   </data>
+  <data name="Error.SaveFailed" xml:space="preserve">
+    <value>Failed to save document.</value>
+  </data>
+  <data name="Error.GraftSourceEmpty" xml:space="preserve">
+    <value>The chosen document has nothing to merge.</value>
+  </data>
+  <data name="Error.GraftObjectNeedsObject" xml:space="preserve">
+    <value>An object target can only merge with another object.</value>
+  </data>
+  <data name="Error.GraftAppendBranchOnly" xml:space="preserve">
+    <value>Select an object or array to merge into.</value>
+  </data>
+  <data name="Error.GraftInsertTopLevelOnly" xml:space="preserve">
+    <value>Select a top-level entry to merge after.</value>
+  </data>
+  <data name="Error.GraftLoadFailed" xml:space="preserve">
+    <value>Could not load the merge document.</value>
+  </data>
+  <data name="Error.GraftFailed" xml:space="preserve">
+    <value>Merge failed:</value>
+  </data>
+  <data name="Error.GraftNoAnchor" xml:space="preserve">
+    <value>Select a valid target to merge into.</value>
+  </data>
   <data name="Error.RootMustBeObjectOrArray" xml:space="preserve">
     <value>Top-level JSON value must be an object or array.</value>
   </data>
@@ -85,7 +109,13 @@
     <value>Open JSON or JSONL file</value>
   </data>
   <data name="FileDialog.ExportTitle" xml:space="preserve">
-    <value>Export selection</value>
+    <value>Export selections</value>
+  </data>
+  <data name="FileDialog.SaveTitle" xml:space="preserve">
+    <value>Save document</value>
+  </data>
+  <data name="FileDialog.UnionTitle" xml:space="preserve">
+    <value>Choose document to merge</value>
   </data>
   <data name="JsonNodeType.Array" xml:space="preserve">
     <value>array</value>
@@ -136,10 +166,10 @@
     <value>File</value>
   </data>
   <data name="Menu.File.ExportClipboard" xml:space="preserve">
-    <value>Export Selection To Clipboard</value>
+    <value>Export Selections To Clipboard</value>
   </data>
   <data name="Menu.File.ExportFile" xml:space="preserve">
-    <value>Export Selection To File...</value>
+    <value>Export Selections To File...</value>
   </data>
   <data name="Menu.File.New" xml:space="preserve">
     <value>New</value>
@@ -158,6 +188,15 @@
   </data>
   <data name="Menu.File.Reload" xml:space="preserve">
     <value>Reload</value>
+  </data>
+  <data name="Menu.File.Save" xml:space="preserve">
+    <value>Save</value>
+  </data>
+  <data name="Menu.File.SaveAs" xml:space="preserve">
+    <value>Save As...</value>
+  </data>
+  <data name="Menu.File.UnionWith" xml:space="preserve">
+    <value>Union With...</value>
   </data>
   <data name="Menu.File.Settings" xml:space="preserve">
     <value>Settings...</value>
@@ -263,6 +302,84 @@
   </data>
   <data name="Status.Elements" xml:space="preserve">
     <value>{0:N0} elements</value>
+  </data>
+  <data name="Status.Saved" xml:space="preserve">
+    <value>Saved to {0}.</value>
+  </data>
+  <data name="Status.Unioned" xml:space="preserve">
+    <value>Merged from {0}.</value>
+  </data>
+  <data name="Status.Exported" xml:space="preserve">
+    <value>Exported selections.</value>
+  </data>
+  <data name="Status.Copied" xml:space="preserve">
+    <value>Copied selections.</value>
+  </data>
+  <data name="Status.Deleted" xml:space="preserve">
+    <value>Deleted node.</value>
+  </data>
+  <data name="Status.Undone" xml:space="preserve">
+    <value>Undo.</value>
+  </data>
+  <data name="Status.Redone" xml:space="preserve">
+    <value>Redo.</value>
+  </data>
+  <data name="Toolbar.Edit" xml:space="preserve">
+    <value>Edit</value>
+  </data>
+  <data name="Toolbar.Add" xml:space="preserve">
+    <value>Add</value>
+  </data>
+  <data name="Toolbar.Delete" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="Tooltip.Undo" xml:space="preserve">
+    <value>Undo (Ctrl+Z)</value>
+  </data>
+  <data name="Tooltip.Redo" xml:space="preserve">
+    <value>Redo (Ctrl+Y)</value>
+  </data>
+  <data name="Edit.Apply" xml:space="preserve">
+    <value>Apply</value>
+  </data>
+  <data name="Edit.Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Edit.Title.EditValue" xml:space="preserve">
+    <value>Edit {0} value</value>
+  </data>
+  <data name="Edit.Title.AddChild" xml:space="preserve">
+    <value>Add child</value>
+  </data>
+  <data name="Edit.Placeholder.Value" xml:space="preserve">
+    <value>Type a value, then Apply</value>
+  </data>
+  <data name="Error.EditNoLeaf" xml:space="preserve">
+    <value>Select a string, number, boolean, or null to edit its value.</value>
+  </data>
+  <data name="Error.EditAddBranchOnly" xml:space="preserve">
+    <value>Select an object or array to add a child.</value>
+  </data>
+  <data name="Error.EditAddType" xml:space="preserve">
+    <value>Unsupported node type for add.</value>
+  </data>
+  <data name="Error.EditDeleteInvalid" xml:space="preserve">
+    <value>Cannot delete this node.</value>
+  </data>
+  <data name="Error.EditKeyRequired" xml:space="preserve">
+    <value>A key is required when adding to an object.</value>
+  </data>
+  <data name="Error.EditBoolFormat" xml:space="preserve">
+    <value>Enter 'true' or 'false'.</value>
+  </data>
+  <data name="Error.EditWrongType" xml:space="preserve">
+    <value>Expected {0} value.</value>
+  </data>
+  <data name="Error.EditChainCorrupt" xml:space="preserve">
+    <value>Internal error: child not found in parent chain.</value>
+  </data>
+  <data name="Error.EditFailed" xml:space="preserve">
+    <value>Edit failed:</value>
   </data>
   <data name="Status.CheckingUpdates" xml:space="preserve">
     <value>Checking for updates...</value>

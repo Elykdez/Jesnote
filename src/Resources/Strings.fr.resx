@@ -13,7 +13,7 @@
     <value>À propos de Jesnote</value>
   </data>
   <data name="About.Version" xml:space="preserve">
-    <value>Version : {0}  (application .NET Avalonia)</value>
+    <value>Version : {0}  (.NET Avalonia)</value>
   </data>
   <data name="Common.Cancel" xml:space="preserve">
     <value>Annuler</value>
@@ -85,7 +85,7 @@
     <value>Ouvrir un fichier JSON ou JSONL</value>
   </data>
   <data name="FileDialog.ExportTitle" xml:space="preserve">
-    <value>Exporter la sélection</value>
+    <value>Exporter les sélections</value>
   </data>
   <data name="JsonNodeType.Array" xml:space="preserve">
     <value>tableau</value>
@@ -139,10 +139,10 @@
     <value>Fichier</value>
   </data>
   <data name="Menu.File.ExportClipboard" xml:space="preserve">
-    <value>Exporter la sélection vers le presse-papiers</value>
+    <value>Exporter les sélections vers le presse-papiers</value>
   </data>
   <data name="Menu.File.ExportFile" xml:space="preserve">
-    <value>Exporter la sélection vers un fichier...</value>
+    <value>Exporter les sélections vers un fichier...</value>
   </data>
   <data name="Menu.File.New" xml:space="preserve">
     <value>Nouveau</value>
@@ -323,5 +323,122 @@
 
 Ouvrez un fichier JSON ou JSONL via le menu Fichier, faites-en glisser un dans cette fenêtre,
 ou importez-le depuis le presse-papiers.</value>
+  </data>
+  <data name="Error.SaveFailed" xml:space="preserve">
+    <value>Échec de l'enregistrement du document.</value>
+  </data>
+  <data name="Error.GraftSourceEmpty" xml:space="preserve">
+    <value>Le document choisi n'a rien à fusionner.</value>
+  </data>
+  <data name="Error.GraftObjectNeedsObject" xml:space="preserve">
+    <value>Une cible objet ne peut fusionner qu'avec un autre objet.</value>
+  </data>
+  <data name="Error.GraftAppendBranchOnly" xml:space="preserve">
+    <value>Sélectionnez un objet ou un tableau comme cible.</value>
+  </data>
+  <data name="Error.GraftInsertTopLevelOnly" xml:space="preserve">
+    <value>Sélectionnez une entrée racine après laquelle fusionner.</value>
+  </data>
+  <data name="Error.GraftLoadFailed" xml:space="preserve">
+    <value>Impossible de charger le document à fusionner.</value>
+  </data>
+  <data name="Error.GraftFailed" xml:space="preserve">
+    <value>Échec de la fusion :</value>
+  </data>
+  <data name="Error.GraftNoAnchor" xml:space="preserve">
+    <value>Sélectionnez une cible valide pour la fusion.</value>
+  </data>
+  <data name="FileDialog.SaveTitle" xml:space="preserve">
+    <value>Enregistrer le document</value>
+  </data>
+  <data name="FileDialog.UnionTitle" xml:space="preserve">
+    <value>Choisir le document à fusionner</value>
+  </data>
+  <data name="Menu.File.Save" xml:space="preserve">
+    <value>Enregistrer</value>
+  </data>
+  <data name="Menu.File.SaveAs" xml:space="preserve">
+    <value>Enregistrer sous...</value>
+  </data>
+  <data name="Menu.File.UnionWith" xml:space="preserve">
+    <value>Fusionner avec...</value>
+  </data>
+  <data name="Status.Saved" xml:space="preserve">
+    <value>Enregistré dans {0}.</value>
+  </data>
+  <data name="Status.Unioned" xml:space="preserve">
+    <value>Fusionné depuis {0}.</value>
+  </data>
+  <data name="Status.Exported" xml:space="preserve">
+    <value>Sélections exportées.</value>
+  </data>
+  <data name="Status.Copied" xml:space="preserve">
+    <value>Sélections copiées.</value>
+  </data>
+  <data name="Status.Deleted" xml:space="preserve">
+    <value>Nœud supprimé.</value>
+  </data>
+  <data name="Status.Undone" xml:space="preserve">
+    <value>Annulé.</value>
+  </data>
+  <data name="Status.Redone" xml:space="preserve">
+    <value>Rétabli.</value>
+  </data>
+  <data name="Toolbar.Edit" xml:space="preserve">
+    <value>Modifier</value>
+  </data>
+  <data name="Toolbar.Add" xml:space="preserve">
+    <value>Ajouter</value>
+  </data>
+  <data name="Toolbar.Delete" xml:space="preserve">
+    <value>Supprimer</value>
+  </data>
+  <data name="Tooltip.Undo" xml:space="preserve">
+    <value>Annuler (Ctrl+Z)</value>
+  </data>
+  <data name="Tooltip.Redo" xml:space="preserve">
+    <value>Rétablir (Ctrl+Y)</value>
+  </data>
+  <data name="Edit.Apply" xml:space="preserve">
+    <value>Appliquer</value>
+  </data>
+  <data name="Edit.Cancel" xml:space="preserve">
+    <value>Annuler</value>
+  </data>
+  <data name="Edit.Title.EditValue" xml:space="preserve">
+    <value>Modifier la valeur {0}</value>
+  </data>
+  <data name="Edit.Title.AddChild" xml:space="preserve">
+    <value>Ajouter un enfant</value>
+  </data>
+  <data name="Edit.Placeholder.Value" xml:space="preserve">
+    <value>Saisissez une valeur puis Appliquer</value>
+  </data>
+  <data name="Error.EditNoLeaf" xml:space="preserve">
+    <value>Sélectionnez une chaîne, un nombre, un booléen ou null pour modifier sa valeur.</value>
+  </data>
+  <data name="Error.EditAddBranchOnly" xml:space="preserve">
+    <value>Sélectionnez un objet ou un tableau pour ajouter un enfant.</value>
+  </data>
+  <data name="Error.EditAddType" xml:space="preserve">
+    <value>Type de nœud non pris en charge pour l'ajout.</value>
+  </data>
+  <data name="Error.EditDeleteInvalid" xml:space="preserve">
+    <value>Impossible de supprimer ce nœud.</value>
+  </data>
+  <data name="Error.EditKeyRequired" xml:space="preserve">
+    <value>Une clé est requise pour ajouter à un objet.</value>
+  </data>
+  <data name="Error.EditBoolFormat" xml:space="preserve">
+    <value>Entrez « true » ou « false ».</value>
+  </data>
+  <data name="Error.EditWrongType" xml:space="preserve">
+    <value>Valeur {0} attendue.</value>
+  </data>
+  <data name="Error.EditChainCorrupt" xml:space="preserve">
+    <value>Erreur interne : enfant introuvable dans la chaîne parente.</value>
+  </data>
+  <data name="Error.EditFailed" xml:space="preserve">
+    <value>Échec de la modification :</value>
   </data>
 </root>

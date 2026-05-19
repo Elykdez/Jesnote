@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -57,6 +58,24 @@ public sealed class MainWindow : Window, ILocalizable
         StringStorageMode.Classic,
     ];
 
+    enum EditPanelMode
+    {
+        Hidden,
+        EditValue,
+        AddChild,
+    }
+
+    // Primitive-typed options shown in the Add-child type combo.
+    static readonly JsonNodeType[] s_addNodeTypes =
+    [
+        JsonNodeType.Object,
+        JsonNodeType.Array,
+        JsonNodeType.String,
+        JsonNodeType.Number,
+        JsonNodeType.Boolean,
+        JsonNodeType.Null,
+    ];
+
     #endregion
 
     #region Fields
@@ -71,6 +90,9 @@ public sealed class MainWindow : Window, ILocalizable
     readonly MenuItem _fileOpenClipboard = new();
     readonly MenuItem _fileOpenRecent = new();
     readonly MenuItem _fileReload = new();
+    readonly MenuItem _fileSave = new();
+    readonly MenuItem _fileSaveAs = new();
+    readonly MenuItem _fileUnion = new();
     readonly MenuItem _fileExportFile = new();
     readonly MenuItem _fileExportClipboard = new();
     readonly MenuItem _fileSettings = new();
@@ -90,15 +112,20 @@ public sealed class MainWindow : Window, ILocalizable
     readonly ComboBox _searchType =
         new()
         {
-            Width = 124,
+            Width = 100,
             ItemsSource = s_searchTypes,
             SelectedIndex = 0,
         };
     readonly TextBox _searchText = new();
-    readonly Button _searchButton = new() { MinWidth = 80 };
+    readonly Button _searchButton = new() { MinWidth = 54 };
     readonly Button _topButton = new() { Width = 32, MinWidth = 32 };
     readonly Button _bottomButton = new() { Width = 32, MinWidth = 32 };
-    readonly Button _collapseButton = new() { MinWidth = 78 };
+    readonly Button _collapseButton = new() { MinWidth = 72 };
+    readonly Button _editButton = new() { MinWidth = 54, Width = 60 };
+    readonly Button _addButton = new() { MinWidth = 54, Width = 60 };
+    readonly Button _deleteButton = new() { MinWidth = 54, Width = 60 };
+    readonly Button _undoButton = new() { MinWidth = 32, Width = 32 };
+    readonly Button _redoButton = new() { MinWidth = 32, Width = 32 };
 
     readonly VirtualJsonTree _tree = new();
     readonly ScrollBar _treeScrollBar =
@@ -118,6 +145,17 @@ public sealed class MainWindow : Window, ILocalizable
             FontFamily = new FontFamily(AppInfo.MonospaceFont),
         };
     readonly TextBlock _status = new();
+    readonly TextBlock _welcome =
+        new()
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 480,
+            Opacity = 0.65,
+            IsHitTestVisible = false,
+        };
     readonly TextBlock _updateLink = CreateLinkText(
         "",
         AppInfo.ReleaseUrl,
@@ -131,6 +169,18 @@ public sealed class MainWindow : Window, ILocalizable
             MinWidth = 86,
             Margin = new Thickness(8, 0, 0, 0),
         };
+
+    // Edit chrome - hidden in view mode. The actual value input is the
+    // _detail TextBox itself; only the meta-controls (title/type/key/buttons)
+    // live in this panel, so editing and previewing share the same input area.
+    readonly Panel _editPanel = new StackPanel { IsVisible = false, Spacing = 4 };
+    readonly TextBlock _editTitle = new() { FontWeight = FontWeight.SemiBold };
+    readonly ComboBox _editTypeCombo = new() { MinWidth = 110 };
+    readonly TextBox _editKey = new();
+    readonly Button _editApply = new() { MinWidth = 72 };
+    readonly Button _editCancel = new() { MinWidth = 72 };
+    EditPanelMode _editMode = EditPanelMode.Hidden;
+    int _editTargetId = -1;
 
     string? _currentFile;
     string? _currentLabel;
@@ -170,6 +220,23 @@ public sealed class MainWindow : Window, ILocalizable
 
         _tree.SelectionChanged += (s, id) => OnSelectionChanged(id);
         _tree.ScrollInfoChanged += (s, e) => UpdateTreeScrollBar();
+        // Refresh menu/toolbar state when graft/edit/save toggles IsModified, and
+        // refresh the tree paint so the modified-row tint stays in sync.
+        _doc.DocumentModified += () =>
+            Dispatcher.UIThread.Post(() =>
+            {
+                SetHasDocument(_doc.Count > 0);
+                SetTitle(_currentLabel);
+                _tree.InvalidateVisual();
+            });
+
+        _editButton.Click += (s, e) => StartEdit();
+        _addButton.Click += (s, e) => StartAddChild();
+        _deleteButton.Click += (s, e) => DoDelete();
+        _undoButton.Click += (s, e) => DoUndo();
+        _redoButton.Click += (s, e) => DoRedo();
+        _editApply.Click += async (s, e) => await OnEditApplyAsync();
+        _editCancel.Click += (s, e) => OnEditCancel();
         _treeScrollBar.ValueChanged += (s, e) =>
         {
             if (!_updatingTreeScrollBar)
@@ -186,6 +253,7 @@ public sealed class MainWindow : Window, ILocalizable
         _collapseButton.Click += (s, e) => _tree.CloseAll();
         _cancelLoadButton.Click += (s, e) => CancelActiveLoad();
 
+        DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
 
@@ -250,8 +318,10 @@ public sealed class MainWindow : Window, ILocalizable
         _tree.Margin = new Thickness(0);
         _treeScrollBar.Margin = new Thickness(4, 0, 0, 0);
         Grid.SetColumn(_tree, 0);
+        Grid.SetColumn(_welcome, 0);
         Grid.SetColumn(_treeScrollBar, 1);
         treeHost.Children.Add(_tree);
+        treeHost.Children.Add(_welcome);
         treeHost.Children.Add(_treeScrollBar);
 
         var splitter = new GridSplitter
@@ -263,17 +333,84 @@ public sealed class MainWindow : Window, ILocalizable
             Background = Brushes.Transparent,
         };
 
-        _detail.Margin = new Thickness(4, 8, 8, 8);
+        _detail.Margin = new Thickness(0);
         _detail.MinWidth = 180;
+        var detailColumn = BuildDetailColumn();
         Grid.SetColumn(treeHost, 0);
         Grid.SetColumn(splitter, 1);
-        Grid.SetColumn(_detail, 2);
+        Grid.SetColumn(detailColumn, 2);
         main.Children.Add(treeHost);
         main.Children.Add(splitter);
-        main.Children.Add(_detail);
+        main.Children.Add(detailColumn);
         root.Children.Add(main);
 
         return root;
+    }
+
+    Control BuildDetailColumn()
+    {
+        var host = new DockPanel { Margin = new Thickness(4, 8, 8, 8), MinWidth = 180 };
+
+        // Inline edit panel docks to the bottom; collapses to zero height when hidden.
+        BuildEditPanel();
+        DockPanel.SetDock(_editPanel, Dock.Bottom);
+        host.Children.Add(_editPanel);
+
+        host.Children.Add(_detail);
+        return host;
+    }
+
+    void BuildEditPanel()
+    {
+        var stack = (StackPanel)_editPanel;
+        stack.Margin = new Thickness(0, 8, 0, 0);
+
+        // Apply / Cancel are wired to OnEditApply / OnEditCancel further down.
+        _editApply.HorizontalAlignment = HorizontalAlignment.Left;
+        _editCancel.HorizontalAlignment = HorizontalAlignment.Left;
+
+        _editTypeCombo.ItemsSource = s_addNodeTypes;
+        _editTypeCombo.SelectedIndex = 2; // String by default
+        _editTypeCombo.SelectionChanged += (s, e) => UpdateEditValueEnabled();
+
+        _editKey.PlaceholderText = "key";
+        _editKey.KeyDown += (s, e) => HandleEditKey(e);
+        // The detail textbox doubles as the value editor in edit mode; it
+        // already lives in the layout below this chrome panel, so we wire
+        // Enter/Escape only while we are actively editing - see StartEdit
+        // and StartAddChild for the AddHandler/RemoveHandler dance.
+
+        var typeRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { _editTypeCombo },
+        };
+        var buttonRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { _editApply, _editCancel },
+        };
+
+        stack.Children.Add(_editTitle);
+        stack.Children.Add(typeRow);
+        stack.Children.Add(_editKey);
+        stack.Children.Add(buttonRow);
+    }
+
+    void HandleEditKey(KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            _ = OnEditApplyAsync();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            OnEditCancel();
+            e.Handled = true;
+        }
     }
 
     Grid BuildStatusBar()
@@ -292,7 +429,9 @@ public sealed class MainWindow : Window, ILocalizable
     {
         var toolbar = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions(
+                "Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+            ),
             Margin = new Thickness(8, 8, 8, 0),
         };
 
@@ -302,6 +441,11 @@ public sealed class MainWindow : Window, ILocalizable
         AddToolbarChild(toolbar, _topButton, 3);
         AddToolbarChild(toolbar, _bottomButton, 4);
         AddToolbarChild(toolbar, _collapseButton, 5);
+        AddToolbarChild(toolbar, _undoButton, 6);
+        AddToolbarChild(toolbar, _redoButton, 7);
+        AddToolbarChild(toolbar, _editButton, 8);
+        AddToolbarChild(toolbar, _addButton, 9);
+        AddToolbarChild(toolbar, _deleteButton, 10);
 
         return toolbar;
     }
@@ -343,6 +487,9 @@ public sealed class MainWindow : Window, ILocalizable
         _fileOpen.Click += async (s, e) => await DoOpenFileAsync();
         _fileOpenClipboard.Click += async (s, e) => await DoOpenFromClipboardAsync();
         _fileReload.Click += async (s, e) => await DoReloadAsync();
+        _fileSave.Click += async (s, e) => await DoSaveAsync();
+        _fileSaveAs.Click += async (s, e) => await DoSaveAsAsync();
+        _fileUnion.Click += async (s, e) => await DoUnionWithAsync();
         _fileExportFile.Click += async (s, e) => await DoExportToFileAsync();
         _fileExportClipboard.Click += async (s, e) => await DoExportToClipboardAsync();
         _fileSettings.Click += async (s, e) => await ShowSettingsAsync();
@@ -371,6 +518,10 @@ public sealed class MainWindow : Window, ILocalizable
             _fileOpenClipboard,
             _fileReload,
             new Separator(),
+            _fileSave,
+            _fileSaveAs,
+            _fileUnion,
+            new Separator(),
             _fileExportFile,
             _fileExportClipboard,
             new Separator(),
@@ -396,6 +547,14 @@ public sealed class MainWindow : Window, ILocalizable
         SetShortcut(_fileNew, new KeyGesture(Key.N, KeyModifiers.Control));
         SetShortcut(_fileOpen, new KeyGesture(Key.O, KeyModifiers.Control));
         SetShortcut(_fileReload, new KeyGesture(Key.R, KeyModifiers.Alt));
+        SetShortcut(_fileSave, new KeyGesture(Key.S, KeyModifiers.Control));
+        SetShortcut(_fileSaveAs, new KeyGesture(Key.S, KeyModifiers.Control | KeyModifiers.Shift));
+        // Toolbar-button hotkeys. Window-level: fire whenever no focused
+        // control consumes them first (TextBox edit-mode Ctrl+Z is preserved
+        // so users can undo typing inside the edit panel).
+        _editButton.HotKey = new KeyGesture(Key.F2);
+        _undoButton.HotKey = new KeyGesture(Key.Z, KeyModifiers.Control);
+        _redoButton.HotKey = new KeyGesture(Key.Y, KeyModifiers.Control);
         SetShortcut(_fileSettings, new KeyGesture(Key.OemComma, KeyModifiers.Control));
         SetShortcut(_fileQuit, new KeyGesture(Key.Q, KeyModifiers.Control));
         SetShortcut(_goTop, new KeyGesture(Key.Home, KeyModifiers.Control));
@@ -410,6 +569,9 @@ public sealed class MainWindow : Window, ILocalizable
         _fileOpenClipboard.Header = Localization.T("Menu.File.OpenClipboard");
         _fileOpenRecent.Header = Localization.T("Menu.File.OpenRecent");
         _fileReload.Header = Localization.T("Menu.File.Reload");
+        _fileSave.Header = Localization.T("Menu.File.Save");
+        _fileSaveAs.Header = Localization.T("Menu.File.SaveAs");
+        _fileUnion.Header = Localization.T("Menu.File.UnionWith");
         _fileExportFile.Header = Localization.T("Menu.File.ExportFile");
         _fileExportClipboard.Header = Localization.T("Menu.File.ExportClipboard");
         _fileSettings.Header = Localization.T("Menu.File.Settings");
@@ -433,7 +595,17 @@ public sealed class MainWindow : Window, ILocalizable
         ToolTip.SetTip(_topButton, Localization.T("Tooltip.ScrollTop"));
         ToolTip.SetTip(_bottomButton, Localization.T("Tooltip.ScrollBottom"));
         _collapseButton.Content = Localization.T("Menu.View.CollapseAll");
+        _editButton.Content = Localization.T("Toolbar.Edit");
+        _addButton.Content = Localization.T("Toolbar.Add");
+        _deleteButton.Content = Localization.T("Toolbar.Delete");
+        _undoButton.Content = "↺";
+        _redoButton.Content = "↻";
+        ToolTip.SetTip(_undoButton, Localization.T("Tooltip.Undo"));
+        ToolTip.SetTip(_redoButton, Localization.T("Tooltip.Redo"));
+        _editApply.Content = Localization.T("Edit.Apply");
+        _editCancel.Content = Localization.T("Edit.Cancel");
         _cancelLoadButton.Content = Localization.T("Common.Cancel");
+        _welcome.Text = Localization.T("Welcome.Text");
         if (_updateLink.IsVisible)
             _updateLink.Text = Localization.T("Status.UpdateAvailable");
         UpdateSearchTypes();
@@ -831,7 +1003,7 @@ public sealed class MainWindow : Window, ILocalizable
 
     async Task DoExportToFileAsync()
     {
-        if (_tree.SelectedId < 0)
+        if (_tree.SelectedIds.Count == 0)
             return;
 
         try
@@ -854,7 +1026,7 @@ public sealed class MainWindow : Window, ILocalizable
 
             await using var stream = await file.OpenWriteAsync();
             await stream.WriteAsync(data);
-            SetStatus("Exported selection.");
+            SetStatus(Localization.T("Status.Exported"));
         }
         catch (Exception ex)
         {
@@ -864,14 +1036,14 @@ public sealed class MainWindow : Window, ILocalizable
 
     async Task DoExportToClipboardAsync()
     {
-        if (_tree.SelectedId < 0 || Clipboard == null)
+        if (_tree.SelectedIds.Count == 0 || Clipboard == null)
             return;
 
         try
         {
             byte[] data = ExtractSelectionBytes();
             await Clipboard.SetTextAsync(Encoding.UTF8.GetString(data));
-            SetStatus("Copied selection.");
+            SetStatus(Localization.T("Status.Copied"));
         }
         catch (Exception ex)
         {
@@ -881,15 +1053,418 @@ public sealed class MainWindow : Window, ILocalizable
 
     byte[] ExtractSelectionBytes()
     {
-        int id = _tree.SelectedId;
-        if (id < 0)
+        var ids = _tree.SelectedIds;
+        if (ids.Count == 0)
             throw new InvalidOperationException(Localization.T("Error.NoSelection"));
+
+        if (ids.Count == 1)
+        {
+            int id = ids.First();
+            // Preserve the single-export promotion: non-branch leaves export as
+            // their parent so the result is always a self-contained subtree.
+            var type = _doc.TypeOf(id);
+            if (type != JsonNodeType.Array && type != JsonNodeType.Object)
+                id = _doc.ParentOf(id);
+            if (id < 0)
+                id = JsonTreeDocument.RootId;
+            return _doc.Extract(id);
+        }
+
+        // Multi-selection: respect literal picks (no parent promotion) and
+        // wrap them in a single JSON array, regardless of what types they
+        // mix.
+        return _doc.ExtractMany(ids.ToArray());
+    }
+
+    #endregion
+
+    #region Save
+
+    async Task DoSaveAsync()
+    {
+        if (string.IsNullOrEmpty(_currentFile))
+        {
+            await DoSaveAsAsync();
+            return;
+        }
+        await SaveToPathAsync(_currentFile);
+    }
+
+    async Task DoSaveAsAsync()
+    {
+        if (_doc.Count == 0)
+            return;
+
+        bool jsonl = _doc.IsJsonl;
+        string defaultName = string.IsNullOrEmpty(_currentFile)
+            ? (jsonl ? "document.jsonl" : "document.json")
+            : Path.GetFileName(_currentFile);
+
+        var file = await StorageProvider.SaveFilePickerAsync(
+            new FilePickerSaveOptions
+            {
+                Title = Localization.T("FileDialog.SaveTitle"),
+                SuggestedFileName = defaultName,
+                FileTypeChoices = jsonl
+                    ?
+                    [
+                        new FilePickerFileType("JSON Lines") { Patterns = ["*.jsonl", "*.ndjson"] },
+                        FilePickerFileTypes.All,
+                    ]
+                    :
+                    [
+                        new FilePickerFileType("JSON") { Patterns = ["*.json"] },
+                        FilePickerFileTypes.All,
+                    ],
+            }
+        );
+        if (file == null)
+            return;
+
+        string? path = file.TryGetLocalPath();
+        if (string.IsNullOrEmpty(path))
+        {
+            SetStatus(Localization.T("Error.SaveFailed"));
+            return;
+        }
+        await SaveToPathAsync(path);
+        _currentFile = path;
+        SetTitle(_currentLabel ?? Path.GetFileName(path));
+    }
+
+    async Task SaveToPathAsync(string path)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            await _doc.SaveAsync(path, cts.Token);
+            SetStatus(Localization.F("Status.Saved", path));
+            SetHasDocument(true);
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localization.T("Error.SaveFailed") + " " + ex.Message);
+        }
+    }
+
+    #endregion
+
+    #region Union
+
+    async Task DoUnionWithAsync()
+    {
+        if (_doc.Count == 0)
+            return;
+        int anchor = _tree.SelectedId;
+        if (anchor < 0 || !_doc.CanGraftInto(anchor))
+        {
+            SetStatus(Localization.T("Error.GraftNoAnchor"));
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(
+            new FilePickerOpenOptions
+            {
+                Title = Localization.T("FileDialog.UnionTitle"),
+                AllowMultiple = false,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("JSON") { Patterns = ["*.json", "*.jsonl", "*.ndjson"] },
+                    FilePickerFileTypes.All,
+                ],
+            }
+        );
+        if (files.Count == 0)
+            return;
+
+        string? path = files[0].TryGetLocalPath();
+        if (string.IsNullOrEmpty(path))
+        {
+            SetStatus(Localization.T("Error.GraftLoadFailed"));
+            return;
+        }
+
+        var other = new JsonTreeDocument { StringStorageMode = _doc.StringStorageMode };
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            bool jsonl = IsJsonlPath(path);
+            await other.LoadAsync(path, progress: null, cts.Token, jsonl);
+            // Run the graft itself off the UI thread - cloning a large source
+            // doc is bounded by source size and we don't want the window to
+            // freeze on multi-million-node unions.
+            int inserted = await Task.Run(() => _doc.Graft(other, anchor), cts.Token);
+            // Visible-row state is stale: existing nodes got new children or
+            // siblings. Easiest correct path is a full rebuild; for huge docs
+            // we could do incremental but rebuild is bounded by visible state
+            // depth, not document size.
+            _tree.RefreshVisible();
+            if (inserted >= 0)
+                _tree.SelectId(inserted);
+            SetHasDocument(true);
+            UpdateElementsLabel();
+            SetStatus(Localization.F("Status.Unioned", Path.GetFileName(path)));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localization.T("Error.GraftFailed") + " " + ex.Message);
+        }
+    }
+
+    #endregion
+
+    #region Edit / Undo
+
+    // The detail TextBox doubles as the value input during editing. We
+    // capture the Enter/Escape keys only while in edit mode and remove the
+    // handler when we're done, so normal preview mode keeps its plain
+    // read-only behaviour.
+    EventHandler<KeyEventArgs>? _detailEditKeyHandler;
+
+    void StartEdit()
+    {
+        int id = _tree.SelectedId;
+        if (id < 0 || !_doc.CanEditValue(id))
+        {
+            SetStatus(Localization.T("Error.EditNoLeaf"));
+            return;
+        }
+
+        _editMode = EditPanelMode.EditValue;
+        _editTargetId = id;
         var type = _doc.TypeOf(id);
-        if (type != JsonNodeType.Array && type != JsonNodeType.Object)
-            id = _doc.ParentOf(id);
-        if (id < 0)
-            id = JsonTreeDocument.RootId;
-        return _doc.Extract(id);
+        _editTitle.Text = Localization.F(
+            "Edit.Title.EditValue",
+            type.ToString().ToLowerInvariant()
+        );
+
+        _editTypeCombo.IsVisible = false;
+        _editKey.IsVisible = false;
+
+        SwitchDetailToEditing(RawEditableText(id, type), enabled: type != JsonNodeType.Null);
+
+        _editPanel.IsVisible = true;
+        _detail.Focus();
+        _detail.SelectAll();
+    }
+
+    void StartAddChild()
+    {
+        int parentId = _tree.SelectedId;
+        if (parentId < 0 || !_doc.CanAddChild(parentId))
+        {
+            SetStatus(Localization.T("Error.EditAddBranchOnly"));
+            return;
+        }
+
+        _editMode = EditPanelMode.AddChild;
+        _editTargetId = parentId;
+        _editTitle.Text = Localization.T("Edit.Title.AddChild");
+
+        var parentType = _doc.TypeOf(parentId);
+        _editTypeCombo.IsVisible = true;
+        if (_editTypeCombo.SelectedIndex < 0)
+            _editTypeCombo.SelectedIndex = 2; // String
+        _editKey.IsVisible = parentType == JsonNodeType.Object;
+        _editKey.Text = string.Empty;
+        SwitchDetailToEditing(string.Empty, enabled: true);
+        UpdateEditValueEnabled();
+
+        _editPanel.IsVisible = true;
+        if (parentType == JsonNodeType.Object)
+            _editKey.Focus();
+        else
+            _detail.Focus();
+    }
+
+    // Builds the raw editable text for a primitive id - used both to seed
+    // the shared detail TextBox when entering edit mode and (indirectly) by
+    // tests that snapshot the edit string before Apply.
+    string RawEditableText(int id, JsonNodeType type) =>
+        type switch
+        {
+            JsonNodeType.String => _doc.GetString(id),
+            JsonNodeType.Number => _doc.GetNumber(id).ToString(CultureInfo.InvariantCulture),
+            JsonNodeType.Boolean => _doc.GetBool(id) ? "true" : "false",
+            _ => string.Empty,
+        };
+
+    void SwitchDetailToEditing(string text, bool enabled)
+    {
+        // First time: capture a handler reference so we can remove it later
+        // without leaking. AcceptsReturn flips to false for single-line edit;
+        // the panel's height stays consistent.
+        if (_detailEditKeyHandler == null)
+        {
+            _detailEditKeyHandler = (s, e) => HandleEditKey(e);
+            _detail.AddHandler(KeyDownEvent, _detailEditKeyHandler, RoutingStrategies.Tunnel);
+        }
+        // Edit mode: re-derive the raw text from the doc when in EditValue.
+        // (Add mode passes "" - caller knows the placeholder/default.)
+        if (_editMode == EditPanelMode.EditValue && _editTargetId >= 0)
+            text = RawEditableText(_editTargetId, _doc.TypeOf(_editTargetId));
+        _detail.Text = text;
+        _detail.IsReadOnly = !enabled;
+        _detail.AcceptsReturn = false;
+        _detail.PlaceholderText = Localization.T("Edit.Placeholder.Value");
+    }
+
+    void SwitchDetailToPreview()
+    {
+        if (_detailEditKeyHandler != null)
+        {
+            _detail.RemoveHandler(KeyDownEvent, _detailEditKeyHandler);
+            _detailEditKeyHandler = null;
+        }
+        _detail.IsReadOnly = true;
+        _detail.AcceptsReturn = true;
+        _detail.PlaceholderText = null;
+    }
+
+    void UpdateEditValueEnabled()
+    {
+        if (_editMode != EditPanelMode.AddChild)
+            return;
+        if (_editTypeCombo.SelectedItem is not JsonNodeType selected)
+            return;
+        bool primitiveWithValue =
+            selected == JsonNodeType.String
+            || selected == JsonNodeType.Number
+            || selected == JsonNodeType.Boolean;
+        _detail.IsReadOnly = !primitiveWithValue;
+        if (primitiveWithValue && string.IsNullOrEmpty(_detail.Text))
+        {
+            _detail.Text = selected switch
+            {
+                JsonNodeType.Boolean => "true",
+                JsonNodeType.Number => "0",
+                _ => string.Empty,
+            };
+        }
+    }
+
+    async Task OnEditApplyAsync()
+    {
+        await Task.Yield(); // keep signature async for future heavy ops
+        try
+        {
+            if (_editMode == EditPanelMode.EditValue)
+                ApplyValueEdit();
+            else if (_editMode == EditPanelMode.AddChild)
+                ApplyAddChild();
+            _tree.RefreshVisible();
+            if (_editTargetId >= 0)
+                _tree.SelectId(_editTargetId);
+            HideEditPanel();
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localization.T("Error.EditFailed") + " " + ex.Message);
+        }
+    }
+
+    void ApplyValueEdit()
+    {
+        int id = _editTargetId;
+        var type = _doc.TypeOf(id);
+        string text = _detail.Text ?? string.Empty;
+        switch (type)
+        {
+            case JsonNodeType.String:
+                _doc.SetString(id, text);
+                break;
+            case JsonNodeType.Number:
+                _doc.SetNumber(
+                    id,
+                    double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
+                );
+                break;
+            case JsonNodeType.Boolean:
+                if (text.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    _doc.SetBool(id, true);
+                else if (text.Equals("false", StringComparison.OrdinalIgnoreCase))
+                    _doc.SetBool(id, false);
+                else
+                    throw new FormatException(Localization.T("Error.EditBoolFormat"));
+                break;
+            case JsonNodeType.Null:
+                // No-op; null has no value to edit.
+                break;
+        }
+    }
+
+    void ApplyAddChild()
+    {
+        int parentId = _editTargetId;
+        if (_editTypeCombo.SelectedItem is not JsonNodeType type)
+            return;
+        var parentType = _doc.TypeOf(parentId);
+        string? key = parentType == JsonNodeType.Object ? _editKey.Text?.Trim() : null;
+        if (parentType == JsonNodeType.Object && string.IsNullOrEmpty(key))
+            throw new InvalidOperationException(Localization.T("Error.EditKeyRequired"));
+
+        _editTargetId = _doc.AddChild(parentId, key, type, _detail.Text ?? string.Empty);
+    }
+
+    void OnEditCancel()
+    {
+        HideEditPanel();
+    }
+
+    void HideEditPanel()
+    {
+        _editMode = EditPanelMode.Hidden;
+        _editPanel.IsVisible = false;
+        SwitchDetailToPreview();
+        // Re-paint the detail with whatever is currently selected so the
+        // user lands back in preview state, not whatever raw text they typed.
+        int sel = _tree.SelectedId;
+        if (sel >= 0)
+            RenderDetail(sel);
+        else
+            _detail.Text = string.Empty;
+        _tree.Focus();
+    }
+
+    void DoDelete()
+    {
+        int id = _tree.SelectedId;
+        if (id < 0 || !_doc.CanDelete(id))
+        {
+            SetStatus(Localization.T("Error.EditDeleteInvalid"));
+            return;
+        }
+        try
+        {
+            int parent = _doc.ParentOf(id);
+            _doc.DeleteNode(id);
+            _tree.RefreshVisible();
+            if (parent >= 0)
+                _tree.SelectId(parent);
+            SetStatus(Localization.T("Status.Deleted"));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localization.T("Error.EditFailed") + " " + ex.Message);
+        }
+    }
+
+    void DoUndo()
+    {
+        if (!_doc.CanUndo)
+            return;
+        _doc.Undo();
+        _tree.RefreshVisible();
+        SetStatus(Localization.T("Status.Undone"));
+    }
+
+    void DoRedo()
+    {
+        if (!_doc.CanRedo)
+            return;
+        _doc.Redo();
+        _tree.RefreshVisible();
+        SetStatus(Localization.T("Status.Redone"));
     }
 
     #endregion
@@ -1165,7 +1740,8 @@ public sealed class MainWindow : Window, ILocalizable
         string loadInfo = _lastLoadDuration.HasValue
             ? $" ({Localization.F("Title.LoadedIn", FormatDuration(_lastLoadDuration.Value))})"
             : "";
-        Title = $"{fileName}{loadInfo} - {AppInfo.AppName}";
+        string dirty = _doc.IsModified ? "* " : "";
+        Title = $"{dirty}{fileName}{loadInfo} - {AppInfo.AppName}";
     }
 
     void UpdateElementsLabel()
@@ -1193,15 +1769,26 @@ public sealed class MainWindow : Window, ILocalizable
 
     void SetHasDocument(bool hasDoc)
     {
+        _welcome.IsVisible = !hasDoc;
         _fileNew.IsEnabled = hasDoc;
         _fileReload.IsEnabled = hasDoc && !string.IsNullOrEmpty(_currentFile);
-        _fileExportFile.IsEnabled = hasDoc && _tree.SelectedId >= 0;
-        _fileExportClipboard.IsEnabled = hasDoc && _tree.SelectedId >= 0;
+        _fileSave.IsEnabled = hasDoc && _doc.IsModified && !string.IsNullOrEmpty(_currentFile);
+        _fileSaveAs.IsEnabled = hasDoc;
+        _fileUnion.IsEnabled =
+            hasDoc && _tree.SelectedId >= 0 && _doc.CanGraftInto(_tree.SelectedId);
+        _fileExportFile.IsEnabled = hasDoc && _tree.SelectedIds.Count > 0;
+        _fileExportClipboard.IsEnabled = hasDoc && _tree.SelectedIds.Count > 0;
         _viewExpandAll.IsEnabled = hasDoc && _doc.Count <= 1000;
         _viewCollapseAll.IsEnabled = hasDoc;
         _goTop.IsEnabled = hasDoc;
         _goBottom.IsEnabled = hasDoc;
         _goSelection.IsEnabled = hasDoc && _tree.SelectedId >= 0;
+        int sel = _tree.SelectedId;
+        _editButton.IsEnabled = hasDoc && sel >= 0 && _doc.CanEditValue(sel);
+        _addButton.IsEnabled = hasDoc && sel >= 0 && _doc.CanAddChild(sel);
+        _deleteButton.IsEnabled = hasDoc && sel >= 0 && _doc.CanDelete(sel);
+        _undoButton.IsEnabled = hasDoc && _doc.CanUndo;
+        _redoButton.IsEnabled = hasDoc && _doc.CanRedo;
         SetBusy(_busy);
     }
 

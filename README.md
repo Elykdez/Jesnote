@@ -27,14 +27,14 @@
 - Open files from the file picker, clipboard, drag and drop, or a command line argument.
 - Search keys and values with wildcard patterns.
 - Export the selected JSON branch to a new file or copy it to the clipboard.
-- View very large JSON files, like >2GB documents with 100MB+ elements.
+- View very large JSON files, like >10GB documents with 100M+ elements.
 - Loading can be canceled at any time without heavy memory issues or UI freezes.
 - Switch between light and dark themes.
 - Locale support: English, Chinese, French, Japanese, Korean, Portuguese, Russian, Spanish.
 
 ## Requirements
 
-- Windows 10 or MacOS (Apple Silicon) with .NET Runtime 8 or newer.
+- Windows 10 or macOS (Apple Silicon) with .NET Runtime 8 or newer.
 
 ## Performance
 

@@ -13,7 +13,7 @@
     <value>Jesnote について</value>
   </data>
   <data name="About.Version" xml:space="preserve">
-    <value>バージョン: {0}  (.NET Avalonia アプリ)</value>
+    <value>バージョン: {0}  (.NET Avalonia)</value>
   </data>
   <data name="Common.Cancel" xml:space="preserve">
     <value>キャンセル</value>
@@ -85,7 +85,7 @@
     <value>JSON または JSONL ファイルを開く</value>
   </data>
   <data name="FileDialog.ExportTitle" xml:space="preserve">
-    <value>選択範囲をエクスポート</value>
+    <value>選択をエクスポート</value>
   </data>
   <data name="JsonNodeType.Array" xml:space="preserve">
     <value>配列</value>
@@ -139,10 +139,10 @@
     <value>ファイル</value>
   </data>
   <data name="Menu.File.ExportClipboard" xml:space="preserve">
-    <value>選択範囲をクリップボードへエクスポート</value>
+    <value>選択をクリップボードへエクスポート</value>
   </data>
   <data name="Menu.File.ExportFile" xml:space="preserve">
-    <value>選択範囲をファイルへエクスポート...</value>
+    <value>選択をファイルへエクスポート...</value>
   </data>
   <data name="Menu.File.New" xml:space="preserve">
     <value>新規</value>
@@ -323,5 +323,122 @@
 
 ファイルメニューから JSON または JSONL ファイルを開くか、このウィンドウにドラッグアンドドロップするか、
 クリップボードからインポートしてください。</value>
+  </data>
+  <data name="Error.SaveFailed" xml:space="preserve">
+    <value>文書の保存に失敗しました。</value>
+  </data>
+  <data name="Error.GraftSourceEmpty" xml:space="preserve">
+    <value>選択された文書には結合する内容がありません。</value>
+  </data>
+  <data name="Error.GraftObjectNeedsObject" xml:space="preserve">
+    <value>オブジェクト先はオブジェクトとしか結合できません。</value>
+  </data>
+  <data name="Error.GraftAppendBranchOnly" xml:space="preserve">
+    <value>結合先にはオブジェクトまたは配列を選択してください。</value>
+  </data>
+  <data name="Error.GraftInsertTopLevelOnly" xml:space="preserve">
+    <value>結合する位置の最上位の項目を選択してください。</value>
+  </data>
+  <data name="Error.GraftLoadFailed" xml:space="preserve">
+    <value>結合用の文書を読み込めませんでした。</value>
+  </data>
+  <data name="Error.GraftFailed" xml:space="preserve">
+    <value>結合に失敗しました：</value>
+  </data>
+  <data name="Error.GraftNoAnchor" xml:space="preserve">
+    <value>結合先として有効な対象を選択してください。</value>
+  </data>
+  <data name="FileDialog.SaveTitle" xml:space="preserve">
+    <value>文書を保存</value>
+  </data>
+  <data name="FileDialog.UnionTitle" xml:space="preserve">
+    <value>結合する文書を選択</value>
+  </data>
+  <data name="Menu.File.Save" xml:space="preserve">
+    <value>保存</value>
+  </data>
+  <data name="Menu.File.SaveAs" xml:space="preserve">
+    <value>名前を付けて保存...</value>
+  </data>
+  <data name="Menu.File.UnionWith" xml:space="preserve">
+    <value>結合...</value>
+  </data>
+  <data name="Status.Saved" xml:space="preserve">
+    <value>{0} に保存しました。</value>
+  </data>
+  <data name="Status.Unioned" xml:space="preserve">
+    <value>{0} から結合しました。</value>
+  </data>
+  <data name="Status.Exported" xml:space="preserve">
+    <value>選択をエクスポートしました。</value>
+  </data>
+  <data name="Status.Copied" xml:space="preserve">
+    <value>選択をコピーしました。</value>
+  </data>
+  <data name="Status.Deleted" xml:space="preserve">
+    <value>ノードを削除しました。</value>
+  </data>
+  <data name="Status.Undone" xml:space="preserve">
+    <value>元に戻しました。</value>
+  </data>
+  <data name="Status.Redone" xml:space="preserve">
+    <value>やり直しました。</value>
+  </data>
+  <data name="Toolbar.Edit" xml:space="preserve">
+    <value>編集</value>
+  </data>
+  <data name="Toolbar.Add" xml:space="preserve">
+    <value>追加</value>
+  </data>
+  <data name="Toolbar.Delete" xml:space="preserve">
+    <value>削除</value>
+  </data>
+  <data name="Tooltip.Undo" xml:space="preserve">
+    <value>元に戻す (Ctrl+Z)</value>
+  </data>
+  <data name="Tooltip.Redo" xml:space="preserve">
+    <value>やり直し (Ctrl+Y)</value>
+  </data>
+  <data name="Edit.Apply" xml:space="preserve">
+    <value>適用</value>
+  </data>
+  <data name="Edit.Cancel" xml:space="preserve">
+    <value>キャンセル</value>
+  </data>
+  <data name="Edit.Title.EditValue" xml:space="preserve">
+    <value>{0} 値を編集</value>
+  </data>
+  <data name="Edit.Title.AddChild" xml:space="preserve">
+    <value>子を追加</value>
+  </data>
+  <data name="Edit.Placeholder.Value" xml:space="preserve">
+    <value>値を入力して「適用」</value>
+  </data>
+  <data name="Error.EditNoLeaf" xml:space="preserve">
+    <value>値を編集するには、文字列・数値・真偽値または null を選択してください。</value>
+  </data>
+  <data name="Error.EditAddBranchOnly" xml:space="preserve">
+    <value>子を追加するにはオブジェクトまたは配列を選択してください。</value>
+  </data>
+  <data name="Error.EditAddType" xml:space="preserve">
+    <value>この種類のノードは追加できません。</value>
+  </data>
+  <data name="Error.EditDeleteInvalid" xml:space="preserve">
+    <value>このノードは削除できません。</value>
+  </data>
+  <data name="Error.EditKeyRequired" xml:space="preserve">
+    <value>オブジェクトに追加する場合はキーが必要です。</value>
+  </data>
+  <data name="Error.EditBoolFormat" xml:space="preserve">
+    <value>true または false を入力してください。</value>
+  </data>
+  <data name="Error.EditWrongType" xml:space="preserve">
+    <value>{0} 値が必要です。</value>
+  </data>
+  <data name="Error.EditChainCorrupt" xml:space="preserve">
+    <value>内部エラー: 親の連鎖に子が見つかりません。</value>
+  </data>
+  <data name="Error.EditFailed" xml:space="preserve">
+    <value>編集に失敗しました：</value>
   </data>
 </root>

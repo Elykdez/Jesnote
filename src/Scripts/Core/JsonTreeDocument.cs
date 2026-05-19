@@ -122,6 +122,36 @@ public sealed class JsonTreeDocument
     /// <summary>Fires after a streaming load publishes additional nodes. Raised on a worker thread.</summary>
     public event Action? DocumentGrew;
 
+    /// <summary>
+    /// Set by <see cref="LoadAsync(string, IProgress{ProgressInfo}?, CancellationToken, bool)"/>
+    /// (and the byte[] overload) to reflect the source format. Drives how
+    /// <see cref="SaveAsync"/> writes - JSONL round-trips back to newline-
+    /// delimited form, JSON writes a single top-level value.
+    /// </summary>
+    public bool IsJsonl { get; private set; }
+
+    bool _isModified;
+
+    /// <summary>True if the document has been mutated (graft or edit) since the last load or save.</summary>
+    public bool IsModified => _isModified;
+
+    /// <summary>Fires after any mutation that changes <see cref="IsModified"/> or the modified-id set. Raised on the calling thread.</summary>
+    public event Action? DocumentModified;
+
+    // Per-edit undo/redo stacks. Each op records the inverse so undo is O(1).
+    // Empty when no edits exist; no per-node fields added.
+    readonly Stack<EditOp> _undo = new();
+    readonly Stack<EditOp> _redo = new();
+
+    // Ids touched by any edit since the last load or save. Consulted in paint only.
+    readonly HashSet<int> _modifiedIds = new();
+
+    /// <summary>Ids touched by any edit since the last load or save.</summary>
+    public IReadOnlyCollection<int> ModifiedIds => _modifiedIds;
+
+    public bool CanUndo => _undo.Count > 0;
+    public bool CanRedo => _redo.Count > 0;
+
     // Cache of "[0]".."[N-1]" - array-heavy docs (telemetry, logs) otherwise
     // allocate one short string per element. 100M × 8 byte ref = unavoidable in
     // Keys[], but the heap-side strings dedupe for small array indices.
@@ -164,6 +194,11 @@ public sealed class JsonTreeDocument
         _lastProgressCount = 0;
         Volatile.Write(ref _publishedCount, 0);
         _framePool.Clear();
+        IsJsonl = false;
+        _isModified = false;
+        _undo.Clear();
+        _redo.Clear();
+        _modifiedIds.Clear();
     }
 
     /// <summary>
@@ -276,6 +311,8 @@ public sealed class JsonTreeDocument
         bool jsonl
     )
     {
+        IsJsonl = jsonl;
+
         // JSONL: always stream + publish progressively so the UI can render
         // the first rows almost immediately even for multi-GB files. Skips
         // the count pass entirely - arrays grow on append.
@@ -326,6 +363,7 @@ public sealed class JsonTreeDocument
         bool jsonl
     )
     {
+        IsJsonl = jsonl;
         progress?.Report(new ProgressInfo(2, 3, 0, 0));
 
         var stats = jsonl ? CountJsonl(data, progress, ct) : CountTokens(data, progress, ct);
@@ -360,21 +398,7 @@ public sealed class JsonTreeDocument
         int sinceCheck = 0;
         while (reader.Read())
         {
-            switch (reader.TokenType)
-            {
-                case JsonTokenType.String:
-                    count++;
-                    strings++;
-                    break;
-                case JsonTokenType.StartObject:
-                case JsonTokenType.StartArray:
-                case JsonTokenType.Number:
-                case JsonTokenType.True:
-                case JsonTokenType.False:
-                case JsonTokenType.Null:
-                    count++;
-                    break;
-            }
+            AccumulateTokenCount(reader.TokenType, ref count, ref strings);
             if (++sinceCheck >= 65536)
             {
                 ct.ThrowIfCancellationRequested();
@@ -448,17 +472,10 @@ public sealed class JsonTreeDocument
         int strings = 0;
         int sinceCheck = 0;
         int pos = 0;
-        while (pos < data.Length)
+        while (TryReadLine(data, ref pos, isFinal: true, out var line))
         {
-            int rel = data[pos..].IndexOf((byte)'\n');
-            int lineEnd = rel < 0 ? data.Length : pos + rel;
-            int adjEnd = lineEnd;
-            if (adjEnd > pos && data[adjEnd - 1] == (byte)'\r')
-                adjEnd--;
-            var line = TrimAsciiWs(data.Slice(pos, adjEnd - pos));
             if (!line.IsEmpty)
                 CountSingleValueLine(line, ref count, ref strings);
-            pos = lineEnd + 1;
             if (++sinceCheck >= 1024)
             {
                 ct.ThrowIfCancellationRequested();
@@ -474,23 +491,7 @@ public sealed class JsonTreeDocument
     {
         var reader = new Utf8JsonReader(line, isFinalBlock: true, default);
         while (reader.Read())
-        {
-            switch (reader.TokenType)
-            {
-                case JsonTokenType.String:
-                    count++;
-                    strings++;
-                    break;
-                case JsonTokenType.StartObject:
-                case JsonTokenType.StartArray:
-                case JsonTokenType.Number:
-                case JsonTokenType.True:
-                case JsonTokenType.False:
-                case JsonTokenType.Null:
-                    count++;
-                    break;
-            }
-        }
+            AccumulateTokenCount(reader.TokenType, ref count, ref strings);
     }
 
     void BuildJsonl(
@@ -506,21 +507,14 @@ public sealed class JsonTreeDocument
         try
         {
             int pos = 0;
-            while (pos < data.Length)
+            while (TryReadLine(data, ref pos, isFinal: true, out var line))
             {
-                int rel = data[pos..].IndexOf((byte)'\n');
-                int lineEnd = rel < 0 ? data.Length : pos + rel;
-                int adjEnd = lineEnd;
-                if (adjEnd > pos && data[adjEnd - 1] == (byte)'\r')
-                    adjEnd--;
-                var line = TrimAsciiWs(data.Slice(pos, adjEnd - pos));
                 if (!line.IsEmpty)
                 {
                     var reader = new Utf8JsonReader(line, isFinalBlock: true, default);
                     while (reader.Read())
                         HandleToken(ref reader, ctx);
                 }
-                pos = lineEnd + 1;
                 ct.ThrowIfCancellationRequested();
                 if (expectedSize > 0 && _count - _lastProgressCount >= ProgressTick)
                 {
@@ -564,6 +558,8 @@ public sealed class JsonTreeDocument
     #region Streaming JSONL
 
     // Single-Pass, Live Publish
+    // JSONL splits on \n or use AllowMultipleValues (.NET 9+)
+    // Multi-value + grow because progressive publish only makes sense for multi-value.
     async Task StreamJsonlAsync(
         string path,
         IProgress<ProgressInfo>? progress,
@@ -572,8 +568,8 @@ public sealed class JsonTreeDocument
     {
         long totalBytes = new FileInfo(path).Length;
 
-        // Synthetic Array root + persistent build context spanning the whole
-        // load. Each line resets only StashedKey on the context.
+        // Synthetic Array root + persistent build context spanning the whole load.
+        // Each line resets only StashedKey on the context.
         var stack = new Stack<Frame>();
         var ctx = new BuildContext { Stack = stack };
         int rootId = AddArray(string.Empty);
@@ -583,80 +579,38 @@ public sealed class JsonTreeDocument
         stack.Push(rootFrame);
         Publish();
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
-        int bytesInBuffer = 0;
-        bool reachedEnd = false;
         long lastPublishTicks = Environment.TickCount64;
 
         using var stream = OpenSequentialRead(path);
         try
         {
-            while (true)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (!reachedEnd)
-                {
-                    int read = await stream
-                        .ReadAsync(
-                            buffer.AsMemory(bytesInBuffer, buffer.Length - bytesInBuffer),
-                            ct
-                        )
-                        .ConfigureAwait(false);
-                    bytesInBuffer += read;
-                    if (read == 0)
-                        reachedEnd = true;
-                }
-
-                int consumed = StreamJsonlChunk(
-                    buffer.AsSpan(0, bytesInBuffer),
-                    reachedEnd,
-                    this,
-                    ctx
-                );
-
-                if (reachedEnd && consumed == bytesInBuffer)
-                    break;
-
-                if (consumed > 0 && consumed < bytesInBuffer)
-                    Buffer.BlockCopy(buffer, consumed, buffer, 0, bytesInBuffer - consumed);
-                bytesInBuffer -= consumed;
-
-                // Publish + progress every ~33 ms. Doing it after each chunk
-                // (rather than after each line) avoids cache-line ping-pong
-                // on _publishedCount and keeps the UI thread's event posts
-                // bounded at ~30 Hz.
-                long now = Environment.TickCount64;
-                if (now - lastPublishTicks >= StreamPublishIntervalTicks)
-                {
-                    Publish();
-                    if (totalBytes > 0)
+            await PumpStreamAsync(
+                    stream,
+                    consume: (data, isFinal) => StreamJsonlChunk(data, isFinal, this, ctx),
+                    // Publish + progress every ~33 ms. Doing it after each chunk
+                    // (rather than after each line) avoids cache-line ping-pong
+                    // on _publishedCount and keeps the UI thread's event posts
+                    // bounded at ~30 Hz.
+                    afterChunk: pos =>
                     {
-                        long pos = stream.Position - bytesInBuffer;
-                        progress?.Report(new ProgressInfo(3, 3, _count, (double)pos / totalBytes));
-                    }
-                    lastPublishTicks = now;
-                }
-
-                if (consumed == 0 && !reachedEnd && bytesInBuffer == buffer.Length)
-                {
-                    if (buffer.Length >= MaxStreamChunkBuffer)
-                        throw new InvalidDataException(
-                            Localization.F(
-                                "Error.JsonlLineTooLong",
-                                MaxStreamChunkBuffer / (1024 * 1024)
-                            )
-                        );
-                    int newSize = (int)Math.Min((long)buffer.Length * 2, MaxStreamChunkBuffer);
-                    var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
-                    Buffer.BlockCopy(buffer, 0, newBuf, 0, bytesInBuffer);
-                    ArrayPool<byte>.Shared.Return(buffer);
-                    buffer = newBuf;
-                }
-            }
+                        long now = Environment.TickCount64;
+                        if (now - lastPublishTicks >= StreamPublishIntervalTicks)
+                        {
+                            Publish();
+                            if (totalBytes > 0)
+                                progress?.Report(
+                                    new ProgressInfo(3, 3, _count, (double)pos / totalBytes)
+                                );
+                            lastPublishTicks = now;
+                        }
+                    },
+                    tooLongErrorKey: "Error.JsonlLineTooLong",
+                    ct: ct
+                )
+                .ConfigureAwait(false);
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
             ReturnAllFrames(stack);
             // Final publish so cancellation and successful completion both
             // leave the visible Count equal to whatever we managed to parse.
@@ -675,26 +629,10 @@ public sealed class JsonTreeDocument
     )
     {
         int pos = 0;
-        while (pos < data.Length)
+        while (TryReadLine(data, ref pos, isFinal, out var line))
         {
-            int rel = data.Slice(pos).IndexOf((byte)'\n');
-            if (rel < 0)
-            {
-                if (!isFinal)
-                    return pos;
-                var tail = TrimAsciiWs(data.Slice(pos));
-                if (!tail.IsEmpty)
-                    ParseStreamingLine(doc, ctx, tail);
-                return data.Length;
-            }
-            int lineEnd = pos + rel;
-            int adjEnd = lineEnd;
-            if (adjEnd > pos && data[adjEnd - 1] == (byte)'\r')
-                adjEnd--;
-            var line = TrimAsciiWs(data.Slice(pos, adjEnd - pos));
             if (!line.IsEmpty)
                 ParseStreamingLine(doc, ctx, line);
-            pos = lineEnd + 1;
         }
         return pos;
     }
@@ -712,76 +650,30 @@ public sealed class JsonTreeDocument
     #region Streaming JSON
 
     // Non-JSONL, Two-Pass
+    // JSON feeds chunks straight through, publish only at the end
+    // Large JSON picked single-root + pre-size to bound memory
+    // TODO: Maybe extend progressive publish to single-root JSON so user sees a partial tree while it streams in.
     static async Task<ParseStats> CountFromStreamAsync(
         Stream stream,
         IProgress<ProgressInfo>? progress,
         CancellationToken ct
     )
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
-        int bytesInBuffer = 0;
-        bool reachedEnd = false;
         var state = new JsonReaderState(s_readerOptions);
         int count = 0;
         int stringCount = 0;
         long totalBytes = stream.CanSeek ? stream.Length : 0;
 
-        try
-        {
-            while (true)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (!reachedEnd)
-                {
-                    int read = await stream
-                        .ReadAsync(
-                            buffer.AsMemory(bytesInBuffer, buffer.Length - bytesInBuffer),
-                            ct
-                        )
-                        .ConfigureAwait(false);
-                    bytesInBuffer += read;
-                    if (read == 0)
-                        reachedEnd = true;
-                }
+        await PumpStreamAsync(
+                stream,
+                consume: (data, isFinal) =>
+                    CountChunk(data, isFinal, ref state, ref count, ref stringCount),
+                afterChunk: pos => ReportByteProgress(progress, 2, pos, totalBytes),
+                tooLongErrorKey: "Error.JsonHugeToken",
+                ct: ct
+            )
+            .ConfigureAwait(false);
 
-                int consumed = CountChunk(
-                    buffer.AsSpan(0, bytesInBuffer),
-                    reachedEnd,
-                    ref state,
-                    ref count,
-                    ref stringCount
-                );
-
-                if (reachedEnd && consumed == bytesInBuffer)
-                    break;
-
-                if (consumed > 0 && consumed < bytesInBuffer)
-                    Buffer.BlockCopy(buffer, consumed, buffer, 0, bytesInBuffer - consumed);
-                bytesInBuffer -= consumed;
-                if (totalBytes > 0)
-                    ReportByteProgress(progress, 2, stream.Position - bytesInBuffer, totalBytes);
-
-                if (consumed == 0 && !reachedEnd && bytesInBuffer == buffer.Length)
-                {
-                    if (buffer.Length >= MaxStreamChunkBuffer)
-                        throw new InvalidDataException(
-                            Localization.F(
-                                "Error.JsonHugeToken",
-                                MaxStreamChunkBuffer / (1024 * 1024)
-                            )
-                        );
-                    int newSize = (int)Math.Min((long)buffer.Length * 2, MaxStreamChunkBuffer);
-                    var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
-                    Buffer.BlockCopy(buffer, 0, newBuf, 0, bytesInBuffer);
-                    ArrayPool<byte>.Shared.Return(buffer);
-                    buffer = newBuf;
-                }
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
         ReportByteProgress(progress, 2, totalBytes, totalBytes);
         return new ParseStats { TotalCount = count, StringCount = stringCount };
     }
@@ -796,23 +688,7 @@ public sealed class JsonTreeDocument
     {
         var reader = new Utf8JsonReader(data, isFinalBlock, state);
         while (reader.Read())
-        {
-            switch (reader.TokenType)
-            {
-                case JsonTokenType.String:
-                    count++;
-                    stringCount++;
-                    break;
-                case JsonTokenType.StartObject:
-                case JsonTokenType.StartArray:
-                case JsonTokenType.Number:
-                case JsonTokenType.True:
-                case JsonTokenType.False:
-                case JsonTokenType.Null:
-                    count++;
-                    break;
-            }
-        }
+            AccumulateTokenCount(reader.TokenType, ref count, ref stringCount);
         state = reader.CurrentState;
         return (int)reader.BytesConsumed;
     }
@@ -824,68 +700,24 @@ public sealed class JsonTreeDocument
         CancellationToken ct
     )
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
-        int bytesInBuffer = 0;
-        bool reachedEnd = false;
         var state = new JsonReaderState(s_readerOptions);
         var stack = new Stack<Frame>();
         var ctx = new BuildContext { Stack = stack };
 
         try
         {
-            while (true)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (!reachedEnd)
-                {
-                    int read = await stream
-                        .ReadAsync(
-                            buffer.AsMemory(bytesInBuffer, buffer.Length - bytesInBuffer),
-                            ct
-                        )
-                        .ConfigureAwait(false);
-                    bytesInBuffer += read;
-                    if (read == 0)
-                        reachedEnd = true;
-                }
-
-                int consumed = BuildChunk(
-                    buffer.AsSpan(0, bytesInBuffer),
-                    reachedEnd,
-                    ref state,
-                    this,
-                    ctx,
-                    expectedSize,
-                    progress
-                );
-
-                if (reachedEnd && consumed == bytesInBuffer)
-                    break;
-
-                if (consumed > 0 && consumed < bytesInBuffer)
-                    Buffer.BlockCopy(buffer, consumed, buffer, 0, bytesInBuffer - consumed);
-                bytesInBuffer -= consumed;
-
-                if (consumed == 0 && !reachedEnd && bytesInBuffer == buffer.Length)
-                {
-                    if (buffer.Length >= MaxStreamChunkBuffer)
-                        throw new InvalidDataException(
-                            Localization.F(
-                                "Error.JsonHugeToken",
-                                MaxStreamChunkBuffer / (1024 * 1024)
-                            )
-                        );
-                    int newSize = (int)Math.Min((long)buffer.Length * 2, MaxStreamChunkBuffer);
-                    var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
-                    Buffer.BlockCopy(buffer, 0, newBuf, 0, bytesInBuffer);
-                    ArrayPool<byte>.Shared.Return(buffer);
-                    buffer = newBuf;
-                }
-            }
+            await PumpStreamAsync(
+                    stream,
+                    consume: (data, isFinal) =>
+                        BuildChunk(data, isFinal, ref state, this, ctx, expectedSize, progress),
+                    afterChunk: null,
+                    tooLongErrorKey: "Error.JsonHugeToken",
+                    ct: ct
+                )
+                .ConfigureAwait(false);
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
             ReturnAllFrames(stack);
         }
     }
@@ -1381,6 +1213,723 @@ public sealed class JsonTreeDocument
 
     #endregion
 
+    #region Mutation - Graft and Save
+
+    /// <summary>
+    /// Selects how a grafted source is spliced into the destination tree.
+    /// The mode is normally chosen automatically by <see cref="Graft"/>; the
+    /// explicit overload exists for callers that need to override.
+    /// </summary>
+    public enum GraftMode
+    {
+        /// <summary>Append the source as a new last child of the anchor branch.</summary>
+        AppendChild,
+
+        /// <summary>Insert the source as the next sibling after the anchor. Used for JSONL top-level entries.</summary>
+        InsertAfterSibling,
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="anchorId"/> is a valid drop target for
+    /// <see cref="Graft"/>. Used by the UI to enable/disable the Union menu.
+    /// </summary>
+    public bool CanGraftInto(int anchorId)
+    {
+        if (anchorId < 0 || anchorId >= Count)
+            return false;
+        var mode = ChooseGraftMode(anchorId);
+        return mode == GraftMode.InsertAfterSibling || ((JsonNodeType)Types[anchorId]).IsBranch();
+    }
+
+    /// <summary>
+    /// Copies <paramref name="other"/>'s top-level value(s) into this document
+    /// at <paramref name="anchorId"/>. Mode is chosen automatically: JSONL
+    /// top-level anchors get InsertAfterSibling, everything else AppendChild.
+    /// Returns the id of the first inserted node.
+    /// </summary>
+    public int Graft(JsonTreeDocument other, int anchorId) =>
+        GraftWithMode(other, ChooseGraftMode(anchorId), anchorId);
+
+    GraftMode ChooseGraftMode(int anchorId)
+    {
+        if (anchorId > 0 && IsJsonl && Parents[anchorId] == RootId)
+            return GraftMode.InsertAfterSibling;
+        return GraftMode.AppendChild;
+    }
+
+    int GraftWithMode(JsonTreeDocument other, GraftMode mode, int anchorId)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        if (other.Count == 0)
+            throw new InvalidOperationException(Localization.T("Error.GraftSourceEmpty"));
+        if (anchorId < 0 || anchorId >= Count)
+            throw new ArgumentOutOfRangeException(nameof(anchorId));
+
+        // Enumerate the source's top-level values to clone. For JSONL the
+        // synthetic root's children are the values; for JSON the root itself
+        // is the single value.
+        var sources = CollectGraftSources(other);
+        if (sources.Count == 0)
+            throw new InvalidOperationException(Localization.T("Error.GraftSourceEmpty"));
+
+        int firstInserted = mode switch
+        {
+            GraftMode.AppendChild => GraftAsChildren(other, sources, anchorId),
+            GraftMode.InsertAfterSibling => GraftAsSiblings(other, sources, anchorId),
+            _ => throw new UnreachableException(),
+        };
+
+        _isModified = true;
+        // Graft is a coarse-grained restructure; clearing the per-edit undo
+        // stacks keeps Ctrl+Z's invariant simple - undo never reaches across
+        // a graft boundary. Reload-from-disk is the way to revert a union.
+        _undo.Clear();
+        _redo.Clear();
+        Publish();
+        DocumentModified?.Invoke();
+        return firstInserted;
+    }
+
+    static List<int> CollectGraftSources(JsonTreeDocument other)
+    {
+        var sources = new List<int>();
+        if (other.IsJsonl)
+        {
+            int c = other.FirstChild[RootId];
+            while (c != -1)
+            {
+                sources.Add(c);
+                c = other.NextSibling[c];
+            }
+        }
+        else
+        {
+            sources.Add(RootId);
+        }
+        return sources;
+    }
+
+    int GraftAsChildren(JsonTreeDocument other, List<int> sources, int anchorId)
+    {
+        var anchorType = (JsonNodeType)Types[anchorId];
+        if (anchorType == JsonNodeType.Array)
+        {
+            // Walk to the existing tail once; append all sources via local tail pointer.
+            int tail = -1;
+            int idx = 0;
+            for (int c = FirstChild[anchorId]; c != -1; c = NextSibling[c])
+            {
+                tail = c;
+                idx++;
+            }
+            int firstInserted = -1;
+            foreach (int src in sources)
+            {
+                int newId = CloneSubtree(other, src, anchorId, ArrayIndexKey(idx++));
+                if (tail == -1)
+                    FirstChild[anchorId] = newId;
+                else
+                    NextSibling[tail] = newId;
+                NextSibling[newId] = -1;
+                tail = newId;
+                if (firstInserted == -1)
+                    firstInserted = newId;
+            }
+            return firstInserted;
+        }
+
+        if (anchorType == JsonNodeType.Object)
+        {
+            // Object target: only meaningful if the source is a single Object
+            // whose keys can be merged into the target. JSONL sources or
+            // primitive-rooted JSON would have no keys to merge with.
+            if (sources.Count != 1 || (JsonNodeType)other.Types[sources[0]] != JsonNodeType.Object)
+                throw new InvalidOperationException(Localization.T("Error.GraftObjectNeedsObject"));
+            int otherRoot = sources[0];
+            int firstInserted = -1;
+            for (int oc = other.FirstChild[otherRoot]; oc != -1; oc = other.NextSibling[oc])
+            {
+                string key = other.Keys[oc] ?? string.Empty;
+                int newId = CloneSubtree(other, oc, anchorId, key);
+                MergeChildIntoObject(anchorId, newId);
+                if (firstInserted == -1)
+                    firstInserted = newId;
+            }
+            return firstInserted;
+        }
+
+        throw new InvalidOperationException(Localization.T("Error.GraftAppendBranchOnly"));
+    }
+
+    int GraftAsSiblings(JsonTreeDocument other, List<int> sources, int anchorId)
+    {
+        if (Parents[anchorId] != RootId)
+            throw new InvalidOperationException(Localization.T("Error.GraftInsertTopLevelOnly"));
+
+        int prev = anchorId;
+        int firstInserted = -1;
+        foreach (int src in sources)
+        {
+            int newId = CloneSubtree(other, src, RootId, key: string.Empty);
+            int next = NextSibling[prev];
+            NextSibling[prev] = newId;
+            NextSibling[newId] = next;
+            prev = newId;
+            if (firstInserted == -1)
+                firstInserted = newId;
+        }
+
+        // Renumber the synthetic-root array indices so keys stay [0]..[N-1].
+        if (IsJsonl)
+            ReindexTopLevel();
+        return firstInserted;
+    }
+
+    int CloneSubtree(JsonTreeDocument other, int otherRoot, int parentId, string key)
+    {
+        int newRoot = CloneNode(other, otherRoot, key);
+        Parents[newRoot] = parentId;
+
+        // Iterative DFS clone: for each cloned branch, walk its source children,
+        // clone each into self, wire parent + sibling chain, push branches to
+        // continue. Recursion-free to survive deep trees.
+        var work = new Stack<(int OtherId, int NewId)>();
+        work.Push((otherRoot, newRoot));
+        while (work.Count > 0)
+        {
+            var (otherId, newId) = work.Pop();
+            if (!((JsonNodeType)other.Types[otherId]).IsBranch())
+                continue;
+
+            int prevNewChild = -1;
+            for (int oc = other.FirstChild[otherId]; oc != -1; oc = other.NextSibling[oc])
+            {
+                string childKey = other.Keys[oc] ?? string.Empty;
+                int nc = CloneNode(other, oc, childKey);
+                Parents[nc] = newId;
+                if (prevNewChild == -1)
+                    FirstChild[newId] = nc;
+                else
+                    NextSibling[prevNewChild] = nc;
+                prevNewChild = nc;
+                work.Push((oc, nc));
+            }
+            if (prevNewChild != -1)
+                NextSibling[prevNewChild] = -1;
+        }
+        return newRoot;
+    }
+
+    int CloneNode(JsonTreeDocument other, int otherId, string key)
+    {
+        var type = (JsonNodeType)other.Types[otherId];
+        return type switch
+        {
+            JsonNodeType.Object => AddObject(key),
+            JsonNodeType.Array => AddArray(key),
+            JsonNodeType.String => AddStringRef(
+                key,
+                _strings.AppendString(other.GetString(otherId))
+            ),
+            JsonNodeType.Number => AddNumber(key, other.GetNumber(otherId)),
+            JsonNodeType.Boolean => AddBool(key, other.GetBool(otherId)),
+            JsonNodeType.Null => AddNull(key),
+            _ => throw new UnreachableException(),
+        };
+    }
+
+    // Splice <paramref name="newChildId"/> into <paramref name="parentId"/>'s
+    // alphabetically-ordered child chain. If a child with the same key already
+    // exists, the new node replaces it; the old subtree's nodes remain in the
+    // arrays but become unreachable (saves write only the reachable tree).
+    void MergeChildIntoObject(int parentId, int newChildId)
+    {
+        string newKey = Keys[newChildId] ?? string.Empty;
+        int prev = -1;
+        int cur = FirstChild[parentId];
+        while (cur != -1)
+        {
+            int cmp = string.CompareOrdinal(Keys[cur], newKey);
+            if (cmp == 0)
+            {
+                NextSibling[newChildId] = NextSibling[cur];
+                if (prev == -1)
+                    FirstChild[parentId] = newChildId;
+                else
+                    NextSibling[prev] = newChildId;
+                return;
+            }
+            if (cmp > 0)
+                break;
+            prev = cur;
+            cur = NextSibling[cur];
+        }
+        NextSibling[newChildId] = cur;
+        if (prev == -1)
+            FirstChild[parentId] = newChildId;
+        else
+            NextSibling[prev] = newChildId;
+    }
+
+    void ReindexTopLevel()
+    {
+        int idx = 0;
+        for (int c = FirstChild[RootId]; c != -1; c = NextSibling[c])
+            Keys[c] = ArrayIndexKey(idx++);
+    }
+
+    /// <summary>
+    /// Writes the document to <paramref name="path"/> using the original
+    /// format - JSONL when <see cref="IsJsonl"/>, single-value JSON otherwise.
+    /// Streams via <see cref="Utf8JsonWriter"/>; never materializes a full byte[].
+    /// Clears <see cref="IsModified"/> on success.
+    /// </summary>
+    public Task SaveAsync(string path, CancellationToken ct = default) =>
+        Task.Run(() => SaveSync(path, ct), ct);
+
+    void SaveSync(string path, CancellationToken ct)
+    {
+        const int FileBufSize = 1 << 16;
+        using var fs = new FileStream(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            FileBufSize
+        );
+        var writerOptions = new JsonWriterOptions { Indented = false };
+        using var writer = new Utf8JsonWriter(fs, writerOptions);
+
+        if (IsJsonl)
+        {
+            // One JSON value per line. Utf8JsonWriter.Reset() lets us reuse
+            // the same writer for multiple top-level values without
+            // allocating fresh writers per line.
+            bool first = true;
+            for (int c = FirstChild[RootId]; c != -1; c = NextSibling[c])
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!first)
+                {
+                    writer.Flush();
+                    fs.WriteByte((byte)'\n');
+                    writer.Reset();
+                }
+                WriteNode(writer, c, propertyName: null);
+                first = false;
+            }
+            writer.Flush();
+            if (!first)
+                fs.WriteByte((byte)'\n');
+        }
+        else
+        {
+            WriteNode(writer, RootId, propertyName: null);
+        }
+
+        _isModified = false;
+        _undo.Clear();
+        _redo.Clear();
+        _modifiedIds.Clear();
+        DocumentModified?.Invoke();
+    }
+
+    /// <summary>
+    /// Serializes multiple node subtrees into a single JSON array. Used by
+    /// the multi-selection export path; matches the single-selection
+    /// <see cref="Extract"/> wrapping when called with one id-but-as-array.
+    /// </summary>
+    public byte[] ExtractMany(IReadOnlyList<int> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count == 0)
+            throw new InvalidOperationException(Localization.T("Error.NoSelection"));
+        for (int i = 0; i < ids.Count; i++)
+        {
+            int id = ids[i];
+            if (id < 0 || id >= Count)
+                throw new ArgumentOutOfRangeException(nameof(ids));
+        }
+
+        using var ms = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false }))
+        {
+            writer.WriteStartArray();
+            for (int i = 0; i < ids.Count; i++)
+                WriteNode(writer, ids[i], propertyName: null);
+            writer.WriteEndArray();
+        }
+        return ms.ToArray();
+    }
+
+    #endregion
+
+    #region Mutation - Edits and Undo
+
+    enum EditKind : byte
+    {
+        SetValue,
+        AddNode,
+        DeleteNode,
+    }
+
+    // Single struct for both ops; the Kind discriminates field usage.
+    // SetValue: Id is the edited node; ValueBefore is the old Values[id].
+    // AddNode:  Id is the new node; ParentId/PrevSiblingId locate it in the chain so undo can unlink.
+    // DeleteNode: Id is the unlinked node; ParentId/PrevSiblingId record the
+    //             chain position so undo can relink.
+    readonly struct EditOp
+    {
+        public EditKind Kind { get; init; }
+        public int Id { get; init; }
+        public int ParentId { get; init; }
+        public int PrevSiblingId { get; init; }
+        public long ValueBefore { get; init; }
+    }
+
+    /// <summary>True when <paramref name="id"/> is a leaf that can have its value edited via <see cref="SetString"/>/<see cref="SetNumber"/>/<see cref="SetBool"/>.</summary>
+    public bool CanEditValue(int id)
+    {
+        if (id < 0 || id >= Count)
+            return false;
+        var t = (JsonNodeType)Types[id];
+        return t == JsonNodeType.String
+            || t == JsonNodeType.Number
+            || t == JsonNodeType.Boolean
+            || t == JsonNodeType.Null;
+    }
+
+    /// <summary>True when a child can be appended under <paramref name="parentId"/>.</summary>
+    public bool CanAddChild(int parentId)
+    {
+        if (parentId < 0 || parentId >= Count)
+            return false;
+        return ((JsonNodeType)Types[parentId]).IsBranch();
+    }
+
+    /// <summary>True when <paramref name="id"/> can be deleted (anything except the document root).</summary>
+    public bool CanDelete(int id) => id > 0 && id < Count && Parents[id] >= 0;
+
+    public void SetString(int id, string value)
+    {
+        RequireType(id, JsonNodeType.String);
+        long oldRaw = Values[id];
+        long newRaw = _strings.AppendString(value);
+        Values[id] = newRaw;
+        RecordEdit(
+            new EditOp
+            {
+                Kind = EditKind.SetValue,
+                Id = id,
+                ValueBefore = oldRaw,
+            }
+        );
+    }
+
+    public void SetNumber(int id, double value)
+    {
+        RequireType(id, JsonNodeType.Number);
+        long oldRaw = Values[id];
+        Values[id] = BitConverter.DoubleToInt64Bits(value);
+        RecordEdit(
+            new EditOp
+            {
+                Kind = EditKind.SetValue,
+                Id = id,
+                ValueBefore = oldRaw,
+            }
+        );
+    }
+
+    public void SetBool(int id, bool value)
+    {
+        RequireType(id, JsonNodeType.Boolean);
+        long oldRaw = Values[id];
+        Values[id] = value ? 1L : 0L;
+        RecordEdit(
+            new EditOp
+            {
+                Kind = EditKind.SetValue,
+                Id = id,
+                ValueBefore = oldRaw,
+            }
+        );
+    }
+
+    /// <summary>
+    /// Appends a new child to <paramref name="parentId"/>. For arrays
+    /// <paramref name="key"/> is ignored - the next index is assigned. For
+    /// primitive types, <paramref name="rawText"/> is parsed according to
+    /// <paramref name="type"/>; for Object/Array, it is ignored.
+    /// Returns the new node's id.
+    /// </summary>
+    public int AddChild(int parentId, string? key, JsonNodeType type, string rawText)
+    {
+        if (!CanAddChild(parentId))
+            throw new InvalidOperationException(Localization.T("Error.EditAddBranchOnly"));
+        var parentType = (JsonNodeType)Types[parentId];
+        string effectiveKey =
+            parentType == JsonNodeType.Array
+                ? ArrayIndexKey(CountChildren(parentId))
+                : (key ?? throw new ArgumentNullException(nameof(key)));
+
+        int newId = type switch
+        {
+            JsonNodeType.Object => AddObject(effectiveKey),
+            JsonNodeType.Array => AddArray(effectiveKey),
+            JsonNodeType.String => AddStringRef(effectiveKey, _strings.AppendString(rawText)),
+            JsonNodeType.Number => AddNumber(effectiveKey, ParseNumber(rawText)),
+            JsonNodeType.Boolean => AddBool(effectiveKey, ParseBool(rawText)),
+            JsonNodeType.Null => AddNull(effectiveKey),
+            _ => throw new InvalidOperationException(Localization.T("Error.EditAddType")),
+        };
+
+        int prev = LinkChildIntoParent(parentId, newId, parentType);
+        RecordEdit(
+            new EditOp
+            {
+                Kind = EditKind.AddNode,
+                Id = newId,
+                ParentId = parentId,
+                PrevSiblingId = prev,
+            }
+        );
+        Publish();
+        return newId;
+    }
+
+    /// <summary>Unlinks <paramref name="id"/> from its parent. The node's data remains in the arrays so undo can relink in O(1).</summary>
+    public void DeleteNode(int id)
+    {
+        if (!CanDelete(id))
+            throw new InvalidOperationException(Localization.T("Error.EditDeleteInvalid"));
+        int parent = Parents[id];
+        int prev = UnlinkFromParent(parent, id);
+        var parentType = (JsonNodeType)Types[parent];
+        if (parentType == JsonNodeType.Array || (IsJsonl && parent == RootId))
+            ReindexArrayChildren(parent);
+        RecordEdit(
+            new EditOp
+            {
+                Kind = EditKind.DeleteNode,
+                Id = id,
+                ParentId = parent,
+                PrevSiblingId = prev,
+            }
+        );
+    }
+
+    public void Undo()
+    {
+        if (_undo.Count == 0)
+            return;
+        var op = _undo.Pop();
+        var inverse = ApplyInverse(op);
+        _redo.Push(inverse);
+        FinishEdit(op.Id, op.ParentId);
+    }
+
+    public void Redo()
+    {
+        if (_redo.Count == 0)
+            return;
+        var op = _redo.Pop();
+        var inverse = ApplyInverse(op);
+        _undo.Push(inverse);
+        FinishEdit(op.Id, op.ParentId);
+    }
+
+    EditOp ApplyInverse(EditOp op)
+    {
+        switch (op.Kind)
+        {
+            case EditKind.SetValue:
+            {
+                long current = Values[op.Id];
+                Values[op.Id] = op.ValueBefore;
+                return new EditOp
+                {
+                    Kind = EditKind.SetValue,
+                    Id = op.Id,
+                    ValueBefore = current,
+                };
+            }
+            case EditKind.AddNode:
+            {
+                // Inverse of Add is Delete: unlink from the chain.
+                int parent = op.ParentId;
+                int prev = UnlinkFromParent(parent, op.Id);
+                if (
+                    (JsonNodeType)Types[parent] == JsonNodeType.Array
+                    || (IsJsonl && parent == RootId)
+                )
+                    ReindexArrayChildren(parent);
+                return new EditOp
+                {
+                    Kind = EditKind.DeleteNode,
+                    Id = op.Id,
+                    ParentId = parent,
+                    PrevSiblingId = prev,
+                };
+            }
+            case EditKind.DeleteNode:
+            {
+                // Inverse of Delete is Add: relink into the chain at the recorded position.
+                int parent = op.ParentId;
+                RelinkChild(parent, op.Id, op.PrevSiblingId);
+                if (
+                    (JsonNodeType)Types[parent] == JsonNodeType.Array
+                    || (IsJsonl && parent == RootId)
+                )
+                    ReindexArrayChildren(parent);
+                return new EditOp
+                {
+                    Kind = EditKind.AddNode,
+                    Id = op.Id,
+                    ParentId = parent,
+                    PrevSiblingId = op.PrevSiblingId,
+                };
+            }
+            default:
+                throw new UnreachableException();
+        }
+    }
+
+    void RecordEdit(EditOp op)
+    {
+        _undo.Push(op);
+        _redo.Clear();
+        FinishEdit(op.Id, op.ParentId);
+    }
+
+    void FinishEdit(int affectedId, int parentId)
+    {
+        if (affectedId >= 0)
+            _modifiedIds.Add(affectedId);
+        // Touching a child changes the parent's "shape" too - mark for the
+        // tree row indicator so users can see at a glance.
+        if (parentId > 0 && parentId < Count)
+            _modifiedIds.Add(parentId);
+        _isModified = _undo.Count > 0;
+        DocumentModified?.Invoke();
+    }
+
+    void RequireType(int id, JsonNodeType expected)
+    {
+        if (id < 0 || id >= Count)
+            throw new ArgumentOutOfRangeException(nameof(id));
+        if ((JsonNodeType)Types[id] != expected)
+            throw new InvalidOperationException(
+                Localization.F("Error.EditWrongType", expected.ToString())
+            );
+    }
+
+    static double ParseNumber(string text) =>
+        double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+    static bool ParseBool(string text)
+    {
+        if (string.Equals(text, "true", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(text, "false", StringComparison.OrdinalIgnoreCase))
+            return false;
+        throw new FormatException(Localization.T("Error.EditBoolFormat"));
+    }
+
+    int CountChildren(int id)
+    {
+        int n = 0;
+        for (int c = FirstChild[id]; c != -1; c = NextSibling[c])
+            n++;
+        return n;
+    }
+
+    // Appends the new child to parent's chain. For Object parents, the new
+    // key is alphabetically spliced (matches the parse-time invariant).
+    // Returns the prev-sibling id (or -1 if attached at head).
+    int LinkChildIntoParent(int parentId, int newId, JsonNodeType parentType)
+    {
+        Parents[newId] = parentId;
+        NextSibling[newId] = -1;
+        if (parentType == JsonNodeType.Object)
+        {
+            string newKey = Keys[newId] ?? string.Empty;
+            int prev = -1;
+            int cur = FirstChild[parentId];
+            while (cur != -1)
+            {
+                int cmp = string.CompareOrdinal(Keys[cur], newKey);
+                if (cmp > 0)
+                    break;
+                prev = cur;
+                cur = NextSibling[cur];
+            }
+            NextSibling[newId] = cur;
+            if (prev == -1)
+                FirstChild[parentId] = newId;
+            else
+                NextSibling[prev] = newId;
+            return prev;
+        }
+        // Array (or synthetic JSONL root): append to tail.
+        int tail = -1;
+        for (int c = FirstChild[parentId]; c != -1; c = NextSibling[c])
+            tail = c;
+        if (tail == -1)
+            FirstChild[parentId] = newId;
+        else
+            NextSibling[tail] = newId;
+        return tail;
+    }
+
+    // Unlinks <paramref name="id"/> from <paramref name="parentId"/>'s chain.
+    // Returns the prev-sibling id (or -1 if was at head) so caller can record
+    // an undo op that puts it back in the same spot.
+    int UnlinkFromParent(int parentId, int id)
+    {
+        int prev = -1;
+        int cur = FirstChild[parentId];
+        while (cur != -1 && cur != id)
+        {
+            prev = cur;
+            cur = NextSibling[cur];
+        }
+        if (cur != id)
+            throw new InvalidOperationException(Localization.T("Error.EditChainCorrupt"));
+        if (prev == -1)
+            FirstChild[parentId] = NextSibling[id];
+        else
+            NextSibling[prev] = NextSibling[id];
+        return prev;
+    }
+
+    // Re-attaches <paramref name="id"/> right after <paramref name="prevSiblingId"/>
+    // (or at head if -1). Restores the subtree's internal link state which is
+    // still intact in the arrays - only the parent-side link was severed.
+    void RelinkChild(int parentId, int id, int prevSiblingId)
+    {
+        if (prevSiblingId == -1)
+        {
+            NextSibling[id] = FirstChild[parentId];
+            FirstChild[parentId] = id;
+        }
+        else
+        {
+            NextSibling[id] = NextSibling[prevSiblingId];
+            NextSibling[prevSiblingId] = id;
+        }
+        Parents[id] = parentId;
+    }
+
+    void ReindexArrayChildren(int parentId)
+    {
+        int idx = 0;
+        for (int c = FirstChild[parentId]; c != -1; c = NextSibling[c])
+            Keys[c] = ArrayIndexKey(idx++);
+    }
+
+    #endregion
+
     #region Display Formatting
 
     /// <summary>
@@ -1423,6 +1972,143 @@ public sealed class JsonTreeDocument
             JsonNodeType.Null => "null",
             _ => string.Empty,
         };
+    }
+
+    #endregion
+
+    #region Parser Helpers
+
+    delegate int ChunkConsumer(ReadOnlySpan<byte> data, bool isFinal);
+    delegate void AfterChunkHook(long posInFile);
+
+    // Shared by every count path so the token-to-counter mapping cannot drift
+    // between in-memory and streaming variants.
+    static void AccumulateTokenCount(JsonTokenType tt, ref int count, ref int stringCount)
+    {
+        switch (tt)
+        {
+            case JsonTokenType.String:
+                count++;
+                stringCount++;
+                break;
+            case JsonTokenType.StartObject:
+            case JsonTokenType.StartArray:
+            case JsonTokenType.Number:
+            case JsonTokenType.True:
+            case JsonTokenType.False:
+            case JsonTokenType.Null:
+                count++;
+                break;
+        }
+    }
+
+    // Pull one JSONL line out of <paramref name="data"/> starting at <paramref name="pos"/>.
+    // Trims a trailing \r and ASCII whitespace on both sides. Returns false when the
+    // remaining bytes contain no '\n' and <paramref name="isFinal"/> is false (caller
+    // must wait for more data); when isFinal is true the no-newline tail is yielded
+    // as the final line. Empty/whitespace lines are yielded too so byte-position
+    // accounting stays aligned with the file layout - callers filter via IsEmpty.
+    static bool TryReadLine(
+        ReadOnlySpan<byte> data,
+        ref int pos,
+        bool isFinal,
+        out ReadOnlySpan<byte> line
+    )
+    {
+        if (pos >= data.Length)
+        {
+            line = default;
+            return false;
+        }
+
+        int rel = data[pos..].IndexOf((byte)'\n');
+        if (rel < 0)
+        {
+            if (!isFinal)
+            {
+                line = default;
+                return false;
+            }
+            line = TrimAsciiWs(data[pos..]);
+            pos = data.Length;
+            return true;
+        }
+
+        int lineEnd = pos + rel;
+        int adjEnd = lineEnd;
+        if (adjEnd > pos && data[adjEnd - 1] == (byte)'\r')
+            adjEnd--;
+        line = TrimAsciiWs(data[pos..adjEnd]);
+        pos = lineEnd + 1;
+        return true;
+    }
+
+    // Chunked-stream pump used by every streaming load path. Owns a pooled
+    // grow-on-stall buffer, drives the read/consume/shift loop, and invokes
+    // <paramref name="afterChunk"/> (if provided) with the file offset of the
+    // unconsumed tail after each shift - that lets callers do throttled
+    // progress reporting or progressive publishing without re-implementing
+    // the buffer plumbing. The buffer is capped at <see cref="MaxStreamChunkBuffer"/>;
+    // <paramref name="tooLongErrorKey"/> selects the localized error message
+    // raised when a single token/line refuses to fit.
+    static async Task PumpStreamAsync(
+        Stream stream,
+        ChunkConsumer consume,
+        AfterChunkHook? afterChunk,
+        string tooLongErrorKey,
+        CancellationToken ct
+    )
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
+        int bytesInBuffer = 0;
+        bool reachedEnd = false;
+        try
+        {
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!reachedEnd)
+                {
+                    int read = await stream
+                        .ReadAsync(
+                            buffer.AsMemory(bytesInBuffer, buffer.Length - bytesInBuffer),
+                            ct
+                        )
+                        .ConfigureAwait(false);
+                    bytesInBuffer += read;
+                    if (read == 0)
+                        reachedEnd = true;
+                }
+
+                int consumed = consume(buffer.AsSpan(0, bytesInBuffer), reachedEnd);
+
+                if (reachedEnd && consumed == bytesInBuffer)
+                    break;
+
+                if (consumed > 0 && consumed < bytesInBuffer)
+                    Buffer.BlockCopy(buffer, consumed, buffer, 0, bytesInBuffer - consumed);
+                bytesInBuffer -= consumed;
+
+                afterChunk?.Invoke(stream.Position - bytesInBuffer);
+
+                if (consumed == 0 && !reachedEnd && bytesInBuffer == buffer.Length)
+                {
+                    if (buffer.Length >= MaxStreamChunkBuffer)
+                        throw new InvalidDataException(
+                            Localization.F(tooLongErrorKey, MaxStreamChunkBuffer / (1024 * 1024))
+                        );
+                    int newSize = (int)Math.Min((long)buffer.Length * 2, MaxStreamChunkBuffer);
+                    var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
+                    Buffer.BlockCopy(buffer, 0, newBuf, 0, bytesInBuffer);
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    buffer = newBuf;
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     #endregion

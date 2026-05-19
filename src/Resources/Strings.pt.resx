@@ -13,7 +13,7 @@
     <value>Sobre o Jesnote</value>
   </data>
   <data name="About.Version" xml:space="preserve">
-    <value>Versão: {0}  (aplicativo .NET Avalonia)</value>
+    <value>Versão: {0}  (.NET Avalonia)</value>
   </data>
   <data name="Common.Cancel" xml:space="preserve">
     <value>Cancelar</value>
@@ -85,7 +85,7 @@
     <value>Abrir arquivo JSON ou JSONL</value>
   </data>
   <data name="FileDialog.ExportTitle" xml:space="preserve">
-    <value>Exportar seleção</value>
+    <value>Exportar seleções</value>
   </data>
   <data name="JsonNodeType.Array" xml:space="preserve">
     <value>array</value>
@@ -139,10 +139,10 @@
     <value>Arquivo</value>
   </data>
   <data name="Menu.File.ExportClipboard" xml:space="preserve">
-    <value>Exportar seleção para a área de transferência</value>
+    <value>Exportar seleções para a área de transferência</value>
   </data>
   <data name="Menu.File.ExportFile" xml:space="preserve">
-    <value>Exportar seleção para arquivo...</value>
+    <value>Exportar seleções para arquivo...</value>
   </data>
   <data name="Menu.File.New" xml:space="preserve">
     <value>Novo</value>
@@ -323,5 +323,122 @@
 
 Abra um arquivo JSON ou JSONL pelo menu Arquivo, arraste e solte um arquivo nesta janela,
 ou importe da área de transferência.</value>
+  </data>
+  <data name="Error.SaveFailed" xml:space="preserve">
+    <value>Falha ao salvar o documento.</value>
+  </data>
+  <data name="Error.GraftSourceEmpty" xml:space="preserve">
+    <value>O documento escolhido não tem nada para mesclar.</value>
+  </data>
+  <data name="Error.GraftObjectNeedsObject" xml:space="preserve">
+    <value>Um destino objeto só pode mesclar com outro objeto.</value>
+  </data>
+  <data name="Error.GraftAppendBranchOnly" xml:space="preserve">
+    <value>Selecione um objeto ou array como destino.</value>
+  </data>
+  <data name="Error.GraftInsertTopLevelOnly" xml:space="preserve">
+    <value>Selecione um item de nível superior para mesclar em seguida.</value>
+  </data>
+  <data name="Error.GraftLoadFailed" xml:space="preserve">
+    <value>Não foi possível carregar o documento de mesclagem.</value>
+  </data>
+  <data name="Error.GraftFailed" xml:space="preserve">
+    <value>Falha na mesclagem:</value>
+  </data>
+  <data name="Error.GraftNoAnchor" xml:space="preserve">
+    <value>Selecione um alvo válido para mesclar.</value>
+  </data>
+  <data name="FileDialog.SaveTitle" xml:space="preserve">
+    <value>Salvar documento</value>
+  </data>
+  <data name="FileDialog.UnionTitle" xml:space="preserve">
+    <value>Escolher documento para mesclar</value>
+  </data>
+  <data name="Menu.File.Save" xml:space="preserve">
+    <value>Salvar</value>
+  </data>
+  <data name="Menu.File.SaveAs" xml:space="preserve">
+    <value>Salvar como...</value>
+  </data>
+  <data name="Menu.File.UnionWith" xml:space="preserve">
+    <value>Mesclar com...</value>
+  </data>
+  <data name="Status.Saved" xml:space="preserve">
+    <value>Salvo em {0}.</value>
+  </data>
+  <data name="Status.Unioned" xml:space="preserve">
+    <value>Mesclado de {0}.</value>
+  </data>
+  <data name="Status.Exported" xml:space="preserve">
+    <value>Seleções exportadas.</value>
+  </data>
+  <data name="Status.Copied" xml:space="preserve">
+    <value>Seleções copiadas.</value>
+  </data>
+  <data name="Status.Deleted" xml:space="preserve">
+    <value>Nó excluído.</value>
+  </data>
+  <data name="Status.Undone" xml:space="preserve">
+    <value>Desfeito.</value>
+  </data>
+  <data name="Status.Redone" xml:space="preserve">
+    <value>Refeito.</value>
+  </data>
+  <data name="Toolbar.Edit" xml:space="preserve">
+    <value>Editar</value>
+  </data>
+  <data name="Toolbar.Add" xml:space="preserve">
+    <value>Adicionar</value>
+  </data>
+  <data name="Toolbar.Delete" xml:space="preserve">
+    <value>Excluir</value>
+  </data>
+  <data name="Tooltip.Undo" xml:space="preserve">
+    <value>Desfazer (Ctrl+Z)</value>
+  </data>
+  <data name="Tooltip.Redo" xml:space="preserve">
+    <value>Refazer (Ctrl+Y)</value>
+  </data>
+  <data name="Edit.Apply" xml:space="preserve">
+    <value>Aplicar</value>
+  </data>
+  <data name="Edit.Cancel" xml:space="preserve">
+    <value>Cancelar</value>
+  </data>
+  <data name="Edit.Title.EditValue" xml:space="preserve">
+    <value>Editar valor {0}</value>
+  </data>
+  <data name="Edit.Title.AddChild" xml:space="preserve">
+    <value>Adicionar filho</value>
+  </data>
+  <data name="Edit.Placeholder.Value" xml:space="preserve">
+    <value>Digite um valor e clique em Aplicar</value>
+  </data>
+  <data name="Error.EditNoLeaf" xml:space="preserve">
+    <value>Selecione uma string, número, booleano ou null para editar seu valor.</value>
+  </data>
+  <data name="Error.EditAddBranchOnly" xml:space="preserve">
+    <value>Selecione um objeto ou array para adicionar um filho.</value>
+  </data>
+  <data name="Error.EditAddType" xml:space="preserve">
+    <value>Tipo de nó não suportado para adicionar.</value>
+  </data>
+  <data name="Error.EditDeleteInvalid" xml:space="preserve">
+    <value>Não é possível excluir este nó.</value>
+  </data>
+  <data name="Error.EditKeyRequired" xml:space="preserve">
+    <value>É necessária uma chave para adicionar a um objeto.</value>
+  </data>
+  <data name="Error.EditBoolFormat" xml:space="preserve">
+    <value>Digite 'true' ou 'false'.</value>
+  </data>
+  <data name="Error.EditWrongType" xml:space="preserve">
+    <value>Esperado um valor {0}.</value>
+  </data>
+  <data name="Error.EditChainCorrupt" xml:space="preserve">
+    <value>Erro interno: filho não encontrado na cadeia do pai.</value>
+  </data>
+  <data name="Error.EditFailed" xml:space="preserve">
+    <value>Falha na edição:</value>
   </data>
 </root>
